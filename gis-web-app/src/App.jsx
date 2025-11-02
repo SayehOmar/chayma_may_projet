@@ -324,6 +324,7 @@ function App() {
                 selectedLayer={selectedLayer}
                 projection={projection}
                 layerGroupsRef={layerGroupsRef}
+                map={map}
             />
             <BufferDialog
                 show={showBufferDialog}
