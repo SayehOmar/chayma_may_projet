@@ -98,7 +98,7 @@ const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, ac
     return (
         <div className="right-sidebar">
             <div className="tabs">
-                <button className="tab active">Data Actions</button>
+                <button className={`tab ${showLayerInfo ? 'active' : ''}`} onClick={() => setShowLayerInfo(!showLayerInfo)}>Data Actions</button>
                 <button className={`tab ${showLayerInfo ? 'active' : ''}`} onClick={() => setShowLayerInfo(!showLayerInfo)}>Layer Infos</button>
             </div>
             <div className="tab-content">
