@@ -5,6 +5,8 @@ import 'leaflet-draw/dist/leaflet.draw.css';
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
+import getShapefile, { parseShp, parseDbf } from 'shpjs';
 import LeftSidebar from './components/LeftSidebar';
 import Map from './components/Map';
 import RightSidebar from './components/RightSidebar';
@@ -40,11 +42,353 @@ function App() {
         proj4.defs('EPSG:22391', '+proj=utm +zone=32 +north +ellps=clrk80ign +units=m +no_defs');
     }, []);
 
+    // Helper function to validate and normalize GeoJSON
+    const processGeoJSON = (geojson, fileNameWithoutExt, fileName) => {
+        try {
+            // Validate basic structure
+            if (!geojson || typeof geojson !== 'object') {
+                throw new Error('Invalid GeoJSON: must be an object');
+            }
+
+            let normalizedGeoJSON;
+
+            // Handle different GeoJSON types
+            if (geojson.type === 'FeatureCollection') {
+                // Validate FeatureCollection
+                if (!Array.isArray(geojson.features)) {
+                    throw new Error('Invalid FeatureCollection: features must be an array');
+                }
+                
+                // Normalize features
+                normalizedGeoJSON = {
+                    type: 'FeatureCollection',
+                    features: geojson.features.map((feature, index) => {
+                        if (!feature || feature.type !== 'Feature') {
+                            console.warn(`Skipping invalid feature at index ${index}`);
+                            return null;
+                        }
+                        if (!feature.geometry || !feature.geometry.coordinates) {
+                            console.warn(`Skipping feature at index ${index}: missing geometry`);
+                            return null;
+                        }
+                        return {
+                            type: 'Feature',
+                            geometry: feature.geometry,
+                            properties: feature.properties || {}
+                        };
+                    }).filter(f => f !== null),
+                    crs: geojson.crs || null
+                };
+
+                if (normalizedGeoJSON.features.length === 0) {
+                    throw new Error('FeatureCollection contains no valid features');
+                }
+
+            } else if (geojson.type === 'Feature') {
+                // Single Feature - wrap in FeatureCollection
+                if (!geojson.geometry || !geojson.geometry.coordinates) {
+                    throw new Error('Invalid Feature: missing geometry');
+                }
+                normalizedGeoJSON = {
+                    type: 'FeatureCollection',
+                    features: [{
+                        type: 'Feature',
+                        geometry: geojson.geometry,
+                        properties: geojson.properties || {}
+                    }],
+                    crs: geojson.crs || null
+                };
+
+            } else if (geojson.type && ['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon'].includes(geojson.type)) {
+                // Geometry object - wrap in Feature and FeatureCollection
+                normalizedGeoJSON = {
+                    type: 'FeatureCollection',
+                    features: [{
+                        type: 'Feature',
+                        geometry: geojson,
+                        properties: {}
+                    }],
+                    crs: geojson.crs || null
+                };
+            } else if (geojson.type === 'GeometryCollection') {
+                // GeometryCollection - convert each geometry to a feature
+                if (!Array.isArray(geojson.geometries)) {
+                    throw new Error('Invalid GeometryCollection: geometries must be an array');
+                }
+                normalizedGeoJSON = {
+                    type: 'FeatureCollection',
+                    features: geojson.geometries
+                        .filter(geom => geom && geom.coordinates)
+                        .map(geometry => ({
+                            type: 'Feature',
+                            geometry: geometry,
+                            properties: {}
+                        })),
+                    crs: geojson.crs || null
+                };
+                if (normalizedGeoJSON.features.length === 0) {
+                    throw new Error('GeometryCollection contains no valid geometries');
+                }
+
+            } else {
+                throw new Error(`Unsupported GeoJSON type: ${geojson.type || 'unknown'}. Expected FeatureCollection, Feature, or Geometry.`);
+            }
+
+            // Extract and transform coordinates if needed
+            let sourceCRS = null;
+            if (normalizedGeoJSON.crs) {
+                const crs = normalizedGeoJSON.crs;
+                if (crs.properties && crs.properties.name) {
+                    const crsName = crs.properties.name;
+                    console.log(`GeoJSON CRS detected: ${crsName}`);
+                    
+                    // Extract EPSG code from CRS name
+                    // Handle formats like: "urn:ogc:def:crs:EPSG::32632" or "EPSG:32632"
+                    const epsgMatch = crsName.match(/EPSG[:\s]*(\d+)/i);
+                    if (epsgMatch) {
+                        sourceCRS = `EPSG:${epsgMatch[1]}`;
+                        console.log(`Extracted EPSG code: ${sourceCRS}`);
+                    }
+                }
+            }
+
+            // Transform coordinates if source CRS is not WGS84
+            if (sourceCRS && sourceCRS !== 'EPSG:4326') {
+                console.log(`Transforming coordinates from ${sourceCRS} to EPSG:4326`);
+                
+                // Define the source projection if not already defined
+                if (!proj4.defs(sourceCRS)) {
+                    // Try to get projection definition (common projections)
+                    if (sourceCRS === 'EPSG:32632') {
+                        proj4.defs('EPSG:32632', '+proj=utm +zone=32 +datum=WGS84 +units=m +no_defs');
+                    } else if (sourceCRS === 'EPSG:22391') {
+                        proj4.defs('EPSG:22391', '+proj=utm +zone=32 +north +ellps=clrk80ign +units=m +no_defs');
+                    } else {
+                        console.warn(`Unknown CRS ${sourceCRS}. Attempting transformation anyway.`);
+                    }
+                }
+
+                // First, check if properties have lon/lat (already in WGS84) - use those for Point geometries
+                let usedProperties = false;
+                normalizedGeoJSON.features.forEach((feature, index) => {
+                    if (feature.geometry && feature.geometry.type === 'Point' && 
+                        feature.properties && 
+                        feature.properties.lon !== undefined && 
+                        feature.properties.lat !== undefined) {
+                        feature.geometry.coordinates = [
+                            parseFloat(feature.properties.lon),
+                            parseFloat(feature.properties.lat)
+                        ];
+                        usedProperties = true;
+                    }
+                });
+
+                if (!usedProperties) {
+                    // Transform coordinates for each feature using proj4
+                    const transformCoordinates = (coords) => {
+                        if (Array.isArray(coords[0])) {
+                            // Nested array (LineString, Polygon, etc.)
+                            return coords.map(transformCoordinates);
+                        } else if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                            // Single coordinate pair [x, y] or [lon, lat]
+                            try {
+                                const [x, y, ...rest] = coords;
+                                const [lon, lat] = proj4(sourceCRS, 'EPSG:4326', [x, y]);
+                                return [lon, lat, ...rest];
+                            } catch (error) {
+                                console.error('Coordinate transformation error:', error, coords);
+                                return coords; // Return original if transformation fails
+                            }
+                        }
+                        return coords;
+                    };
+
+                    normalizedGeoJSON.features.forEach((feature, index) => {
+                        if (feature.geometry && feature.geometry.coordinates) {
+                            try {
+                                feature.geometry.coordinates = transformCoordinates(feature.geometry.coordinates);
+                            } catch (error) {
+                                console.error(`Error transforming feature ${index}:`, error);
+                            }
+                        }
+                    });
+                } else {
+                    console.log('Used lon/lat from properties for Point geometries');
+                }
+
+                // Remove CRS since coordinates are now in WGS84
+                normalizedGeoJSON.crs = null;
+                console.log('Coordinate transformation completed');
+            } else if (!sourceCRS) {
+                // Check if coordinates look like they're in a projected system (large numbers)
+                const firstFeature = normalizedGeoJSON.features[0];
+                if (firstFeature && firstFeature.geometry) {
+                    const coords = firstFeature.geometry.coordinates;
+                    if (coords && Array.isArray(coords)) {
+                        const firstCoord = Array.isArray(coords[0]) ? coords[0][0] : coords[0];
+                        if (typeof firstCoord === 'number' && Math.abs(firstCoord) > 180) {
+                            console.warn('Coordinates appear to be in a projected system but no CRS specified. Attempting to use lon/lat from properties if available.');
+                            
+                            // Try to use lon/lat from properties if available
+                            normalizedGeoJSON.features.forEach((feature, index) => {
+                                if (feature.properties && feature.properties.lon !== undefined && feature.properties.lat !== undefined) {
+                                    if (feature.geometry.type === 'Point') {
+                                        feature.geometry.coordinates = [
+                                            parseFloat(feature.properties.lon),
+                                            parseFloat(feature.properties.lat)
+                                        ];
+                                        console.log(`Feature ${index}: Using lon/lat from properties`);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate coordinate ranges for WGS84 (rough check)
+            const validateCoordinates = (geometry, featureIndex) => {
+                if (geometry.type === 'Point') {
+                    const [lon, lat] = geometry.coordinates;
+                    if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+                        console.warn(`Feature ${featureIndex} has coordinates outside WGS84 bounds: [${lon}, ${lat}]`);
+                    }
+                } else if (['LineString', 'MultiPoint'].includes(geometry.type)) {
+                    geometry.coordinates.forEach((coord, coordIndex) => {
+                        const [lon, lat] = coord;
+                        if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+                            console.warn(`Feature ${featureIndex}, coordinate ${coordIndex} outside WGS84 bounds: [${lon}, ${lat}]`);
+                        }
+                    });
+                } else if (['Polygon', 'MultiLineString'].includes(geometry.type)) {
+                    geometry.coordinates.forEach((ring, ringIndex) => {
+                        ring.forEach((coord, coordIndex) => {
+                            const [lon, lat] = coord;
+                            if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+                                console.warn(`Feature ${featureIndex}, ring ${ringIndex}, coordinate ${coordIndex} outside WGS84 bounds: [${lon}, ${lat}]`);
+                            }
+                        });
+                    });
+                } else if (geometry.type === 'MultiPolygon') {
+                    geometry.coordinates.forEach((polygon, polyIndex) => {
+                        polygon.forEach((ring, ringIndex) => {
+                            ring.forEach((coord, coordIndex) => {
+                                const [lon, lat] = coord;
+                                if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+                                    console.warn(`Feature ${featureIndex}, polygon ${polyIndex}, ring ${ringIndex}, coordinate ${coordIndex} outside WGS84 bounds: [${lon}, ${lat}]`);
+                                }
+                            });
+                        });
+                    });
+                } else if (geometry.type === 'GeometryCollection') {
+                    geometry.geometries.forEach((geom, geomIndex) => {
+                        validateCoordinates(geom, `${featureIndex}-${geomIndex}`);
+                    });
+                }
+            };
+
+            normalizedGeoJSON.features.forEach((feature, index) => {
+                validateCoordinates(feature.geometry, index);
+            });
+
+            console.log('Processed GeoJSON:', normalizedGeoJSON);
+            console.log(`GeoJSON contains ${normalizedGeoJSON.features.length} feature(s)`);
+            
+            addLayer(fileNameWithoutExt, 'geojson', normalizedGeoJSON, fileNameWithoutExt);
+        } catch (error) {
+            console.error('Error processing GeoJSON:', error);
+            alert(`Error processing GeoJSON file ${fileName}:\n${error.message}\n\nPlease ensure the file is valid GeoJSON format.`);
+        }
+    };
+
+    // Helper function to process CSV/Excel data to GeoJSON
+    const processPointData = (data, fileNameWithoutExt) => {
+        const features = data
+            .filter(row => {
+                // Check for X/Y columns (case insensitive)
+                const xCol = Object.keys(row).find(key => key.toUpperCase() === 'X');
+                const yCol = Object.keys(row).find(key => key.toUpperCase() === 'Y');
+                return xCol && yCol && !isNaN(row[xCol]) && !isNaN(row[yCol]);
+            })
+            .map(row => {
+                try {
+                    const xCol = Object.keys(row).find(key => key.toUpperCase() === 'X');
+                    const yCol = Object.keys(row).find(key => key.toUpperCase() === 'Y');
+                    const x = parseFloat(row[xCol]);
+                    const y = parseFloat(row[yCol]);
+                    
+                    const [lon, lat] = proj4('EPSG:22391', 'EPSG:4326', [x, y]);
+                    
+                    // Include all properties from the row
+                    const properties = { ...row };
+                    // Ensure name property exists
+                    if (!properties.name) {
+                        const nameCol = Object.keys(row).find(key => 
+                            key.toUpperCase() === 'SITES' || 
+                            key.toUpperCase() === 'A' || 
+                            key.toUpperCase() === 'NAME'
+                        );
+                        properties.name = nameCol ? row[nameCol] : 'Unnamed';
+                    }
+                    properties.x = x;
+                    properties.y = y;
+                    
+                    return {
+                        type: 'Feature',
+                        properties: properties,
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [lon, lat]
+                        }
+                    };
+                } catch (error) {
+                    console.error('Error converting coordinates:', row, error);
+                    return null;
+                }
+            })
+            .filter(feature => feature !== null);
+        
+        const geojson = {
+            type: 'FeatureCollection',
+            features: features
+        };
+        
+        console.log('Created GeoJSON:', geojson);
+        addLayer(fileNameWithoutExt, 'geojson', geojson, fileNameWithoutExt);
+    };
+
     const handleFileUpload = (event) => {
         const files = event.target.files;
         if (!files || files.length === 0) return;
 
+        // Group shapefile components together
+        const shapefileGroups = {};
+        const otherFiles = [];
+
         for (const file of files) {
+            const fileName = file.name;
+            const ext = fileName.split('.').pop().toLowerCase();
+            
+            if (['shp', 'shx', 'dbf', 'prj', 'cpg'].includes(ext)) {
+                const baseName = fileName.replace(/\.(shp|shx|dbf|prj|cpg)$/i, '');
+                if (!shapefileGroups[baseName]) {
+                    shapefileGroups[baseName] = {};
+                }
+                shapefileGroups[baseName][ext] = file;
+            } else {
+                otherFiles.push(file);
+            }
+        }
+
+        // Process shapefiles
+        for (const [baseName, fileGroup] of Object.entries(shapefileGroups)) {
+            if (fileGroup.shp) {
+                processShapefile(fileGroup.shp, fileGroup, baseName);
+            }
+        }
+
+        // Process other files
+        for (const file of otherFiles) {
             const fileName = file.name;
             const fileNameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
             const ext = fileName.split('.').pop().toLowerCase();
@@ -57,61 +401,144 @@ function App() {
                     dynamicTyping: true,
                     complete: (results) => {
                         console.log('Parsed CSV data:', results.data);
-                        
-                        const features = results.data
-                            .filter(row => row.X && row.Y && !isNaN(row.X) && !isNaN(row.Y))
-                            .map(row => {
-                                try {
-                                    const x = parseFloat(row.X);
-                                    const y = parseFloat(row.Y);
-                                    
-                                    const [lon, lat] = proj4('EPSG:22391', 'EPSG:4326', [x, y]);
-                                    
-                                    return {
-                                        type: 'Feature',
-                                        properties: {
-                                            name: row.Sites || row.A || 'Unnamed',
-                                            x: x,
-                                            y: y
-                                        },
-                                        geometry: {
-                                            type: 'Point',
-                                            coordinates: [lon, lat]
-                                        }
-                                    };
-                                } catch (error) {
-                                    console.error('Error converting coordinates:', row, error);
-                                    return null;
-                                }
-                            })
-                            .filter(feature => feature !== null);
-                        
-                        const geojson = {
-                            type: 'FeatureCollection',
-                            features: features
-                        };
-                        
-                        console.log('Created GeoJSON:', geojson);
-                        addLayer(fileNameWithoutExt, 'geojson', geojson, fileNameWithoutExt);
+                        processPointData(results.data, fileNameWithoutExt);
                     },
                     error: (error) => {
                         console.error('CSV parsing error:', error);
+                        alert(`Error parsing CSV file ${fileName}: ${error.message}`);
                     }
                 });
+            } else if (ext === 'xlsx' || ext === 'xls') {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        
+                        // Read the first sheet
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                        
+                        console.log('Parsed XLSX data:', jsonData);
+                        processPointData(jsonData, fileNameWithoutExt);
+                    } catch (error) {
+                        console.error('Error parsing XLSX file:', error);
+                        alert(`Error parsing XLSX file ${fileName}: ${error.message}`);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
             } else if (ext === 'geojson' || ext === 'json') {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
                         const geojson = JSON.parse(e.target.result);
-                        addLayer(fileNameWithoutExt, 'geojson', geojson, fileNameWithoutExt);
+                        processGeoJSON(geojson, fileNameWithoutExt, fileName);
                     } catch (error) {
                         console.error('Error parsing file:', error);
+                        alert(`Error parsing GeoJSON file ${fileName}: ${error.message}`);
                     }
                 };
                 reader.readAsText(file);
             }
         }
         event.target.value = '';
+    };
+
+    const processShapefile = async (shpFile, fileGroup, baseName) => {
+        try {
+            // Read the .shp file as ArrayBuffer
+            const shpBuffer = await shpFile.arrayBuffer();
+            
+            // Try to read associated files if available
+            let dbfBuffer = null;
+            let prjBuffer = null;
+            let cpgBuffer = null;
+            
+            if (fileGroup.dbf) {
+                dbfBuffer = await fileGroup.dbf.arrayBuffer();
+            }
+            if (fileGroup.prj) {
+                prjBuffer = await fileGroup.prj.text();
+            }
+            if (fileGroup.cpg) {
+                cpgBuffer = await fileGroup.cpg.text();
+            }
+
+            // Use shpjs to parse the shapefile
+            // shpjs getShapefile can work with an object containing .shp, .dbf, .prj, .cpg
+            let geojson;
+            try {
+                const shapefileObject = {
+                    shp: shpBuffer
+                };
+                
+                if (dbfBuffer) {
+                    shapefileObject.dbf = dbfBuffer;
+                }
+                if (prjBuffer) {
+                    shapefileObject.prj = prjBuffer;
+                }
+                if (cpgBuffer) {
+                    shapefileObject.cpg = cpgBuffer;
+                }
+
+                // Use getShapefile with object format
+                geojson = await getShapefile(shapefileObject);
+            } catch (parseError) {
+                console.error('Shapefile parsing error:', parseError);
+                // Fallback: try parsing shp and dbf separately if combine is needed
+                try {
+                    if (dbfBuffer) {
+                        const shpFeatures = await parseShp(shpBuffer, prjBuffer);
+                        const dbfData = await parseDbf(dbfBuffer, cpgBuffer);
+                        // Combine features with attributes
+                        geojson = {
+                            type: 'FeatureCollection',
+                            features: shpFeatures.map((feature, index) => ({
+                                ...feature,
+                                properties: {
+                                    ...feature.properties,
+                                    ...(dbfData[index] || {})
+                                }
+                            }))
+                        };
+                    } else {
+                        geojson = await parseShp(shpBuffer, prjBuffer);
+                    }
+                } catch (fallbackError) {
+                    throw new Error(`Failed to parse shapefile: ${parseError.message}`);
+                }
+            }
+
+            // Ensure geojson has the correct structure
+            if (!geojson || !geojson.type) {
+                // If geojson is an array of features, wrap it
+                if (Array.isArray(geojson)) {
+                    geojson = {
+                        type: 'FeatureCollection',
+                        features: geojson
+                    };
+                } else if (geojson.type === 'Feature') {
+                    geojson = {
+                        type: 'FeatureCollection',
+                        features: [geojson]
+                    };
+                }
+            }
+
+            // If we have a projection file, log it for reference
+            if (prjBuffer) {
+                console.log('Shapefile projection:', prjBuffer);
+                // Note: Coordinate transformation is handled by shpjs if proj4 projection is provided
+            }
+
+            console.log('Parsed Shapefile:', geojson);
+            addLayer(baseName, 'geojson', geojson, baseName);
+        } catch (error) {
+            console.error('Error parsing shapefile:', error);
+            alert(`Error parsing shapefile ${baseName}: ${error.message}\n\nNote: Shapefiles work best with .shp, .shx, and .dbf files. Please select all related files when uploading.`);
+        }
     };
 
     const addLayer = (name, type, data, category) => {
@@ -297,7 +724,7 @@ function App() {
                 id="fileInput" 
                 style={{ display: 'none' }} 
                 multiple 
-                accept=".csv,.geojson,.json"
+                accept=".csv,.geojson,.json,.xlsx,.xls,.shp,.shx,.dbf,.prj,.cpg"
                 onChange={handleFileUpload}
             />
             <LeftSidebar
