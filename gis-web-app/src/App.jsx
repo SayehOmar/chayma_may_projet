@@ -38,7 +38,7 @@ function App() {
 
         // Enable map dragging by default - users can always pan the map
         // Dragging will only be disabled when actively drawing (handled in DrawTools)
-        map.dragging.enable();
+            map.dragging.enable();
     }, [map]);
 
     const [projection, setProjection] = useState('EPSG:22391');
@@ -316,14 +316,14 @@ function App() {
                 const yCol = Object.keys(row).find(key => key.toUpperCase() === 'Y');
                 return xCol && yCol && !isNaN(row[xCol]) && !isNaN(row[yCol]);
             })
-            .map(row => {
-                try {
+                            .map(row => {
+                                try {
                     const xCol = Object.keys(row).find(key => key.toUpperCase() === 'X');
                     const yCol = Object.keys(row).find(key => key.toUpperCase() === 'Y');
                     const x = parseFloat(row[xCol]);
                     const y = parseFloat(row[yCol]);
-                    
-                    const [lon, lat] = proj4('EPSG:22391', 'EPSG:4326', [x, y]);
+                                    
+                                    const [lon, lat] = proj4('EPSG:22391', 'EPSG:4326', [x, y]);
                     
                     // Include all properties from the row
                     const properties = { ...row };
@@ -338,29 +338,29 @@ function App() {
                     }
                     properties.x = x;
                     properties.y = y;
-                    
-                    return {
-                        type: 'Feature',
+                                    
+                                    return {
+                                        type: 'Feature',
                         properties: properties,
-                        geometry: {
-                            type: 'Point',
-                            coordinates: [lon, lat]
-                        }
-                    };
-                } catch (error) {
-                    console.error('Error converting coordinates:', row, error);
-                    return null;
-                }
-            })
-            .filter(feature => feature !== null);
-        
-        const geojson = {
-            type: 'FeatureCollection',
-            features: features
-        };
-        
-        console.log('Created GeoJSON:', geojson);
-        addLayer(fileNameWithoutExt, 'geojson', geojson, fileNameWithoutExt);
+                                        geometry: {
+                                            type: 'Point',
+                                            coordinates: [lon, lat]
+                                        }
+                                    };
+                                } catch (error) {
+                                    console.error('Error converting coordinates:', row, error);
+                                    return null;
+                                }
+                            })
+                            .filter(feature => feature !== null);
+                        
+                        const geojson = {
+                            type: 'FeatureCollection',
+                            features: features
+                        };
+                        
+                        console.log('Created GeoJSON:', geojson);
+                        addLayer(fileNameWithoutExt, 'geojson', geojson, fileNameWithoutExt);
     };
 
     const handleFileUpload = (event) => {
@@ -547,6 +547,60 @@ function App() {
         }
     };
 
+    // Helper function to escape HTML to prevent XSS
+    const escapeHtml = (text) => {
+        if (text === null || text === undefined) return 'N/A';
+        const div = document.createElement('div');
+        div.textContent = text.toString();
+        return div.innerHTML;
+    };
+
+    // Helper function to create styled popup content
+    const createPopupContent = (properties) => {
+        if (!properties || Object.keys(properties).length === 0) {
+            return '<div class="popup-content">No attributes available</div>';
+        }
+
+        // Get name/title property
+        const nameProp = properties.name || properties.Nom || properties.Sites || properties.A || 'Feature';
+        
+        // Filter out coordinate properties for cleaner display
+        const displayProps = Object.entries(properties).filter(([key]) => {
+            const lowerKey = key.toLowerCase();
+            return lowerKey !== 'x' && lowerKey !== 'y' && lowerKey !== 'lon' && lowerKey !== 'lat';
+        });
+
+        let html = `
+            <div class="popup-content">
+                <div class="popup-header">
+                    <h3 class="popup-title">
+                        <i class="fas fa-map-marker-alt" style="margin-right: 8px; color: #ffffff;"></i>
+                        ${escapeHtml(nameProp)}
+                    </h3>
+                </div>
+                <div class="popup-body">
+                    <table class="popup-attribute-table">
+        `;
+
+        displayProps.forEach(([key, value]) => {
+            const displayValue = value !== null && value !== undefined ? value.toString() : 'N/A';
+            html += `
+                <tr>
+                    <td class="popup-attr-key">${escapeHtml(key)}:</td>
+                    <td class="popup-attr-value">${escapeHtml(displayValue)}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                    </table>
+                </div>
+            </div>
+        `;
+
+        return html;
+    };
+
     const addLayer = (name, type, data, category) => {
         const id = Date.now() + Math.random();
         const newLayer = {
@@ -589,8 +643,13 @@ function App() {
                     });
                 },
                 onEachFeature: (feature, layer) => {
-                    if (feature.properties && feature.properties.name) {
-                        layer.bindPopup(`<strong>${feature.properties.name}</strong>`);
+                    if (feature.properties) {
+                        const popupContent = createPopupContent(feature.properties);
+                        layer.bindPopup(popupContent, {
+                            className: 'custom-popup',
+                            maxWidth: 400,
+                            maxHeight: 500
+                        });
                     }
                 }
             }).addTo(map);
@@ -781,15 +840,15 @@ function App() {
                 onChange={handleFileUpload}
             />
             <div className="left-sidebar-wrapper" style={{ width: `${leftSidebarWidth}px` }}>
-                <LeftSidebar
-                    layers={layers}
-                    categories={categories}
-                    toggleCategory={toggleCategory}
-                    toggleLayerVisibility={toggleLayerVisibility}
-                    deleteLayer={deleteLayer}
-                    selectLayer={selectLayer}
-                    selectedLayer={selectedLayer}
-                />
+            <LeftSidebar
+                layers={layers}
+                categories={categories}
+                toggleCategory={toggleCategory}
+                toggleLayerVisibility={toggleLayerVisibility}
+                deleteLayer={deleteLayer}
+                selectLayer={selectLayer}
+                selectedLayer={selectedLayer}
+            />
                 <div 
                     className="resize-handle resize-handle-right"
                     onMouseDown={handleLeftResizeStart}
@@ -805,19 +864,19 @@ function App() {
                     className="resize-handle resize-handle-left"
                     onMouseDown={handleRightResizeStart}
                 ></div>
-                <RightSidebar
-                    selectedColor={selectedColor}
-                    selectColor={handleColorSelection}
-                    zoomIn={zoomIn}
-                    zoomOut={zoomOut}
-                    setTool={setTool}
-                    activeTool={activeTool}
-                    selectedLayer={selectedLayer}
-                    projection={projection}
-                    layerGroupsRef={layerGroupsRef}
-                    map={map}
+            <RightSidebar
+                selectedColor={selectedColor}
+                selectColor={handleColorSelection}
+                zoomIn={zoomIn}
+                zoomOut={zoomOut}
+                setTool={setTool}
+                activeTool={activeTool}
+                selectedLayer={selectedLayer}
+                projection={projection}
+                layerGroupsRef={layerGroupsRef}
+                map={map}
                     onShowStatistics={() => setShowStatisticsWindow(true)}
-                />
+            />
             </div>
             <BufferDialog
                 show={showBufferDialog}

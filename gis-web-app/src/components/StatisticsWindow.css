@@ -12,11 +12,22 @@
     overflow: hidden;
     transition: box-shadow 0.2s;
     border: 1px solid #cbd5e1;
+    transform: translateZ(0);
+    will-change: transform;
 }
 
 .statistics-window.dragging {
     box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.15);
     cursor: move;
+    pointer-events: none;
+}
+
+.statistics-window.dragging * {
+    pointer-events: none;
+}
+
+.statistics-window.dragging .window-header {
+    pointer-events: auto;
 }
 
 .statistics-window.minimized {
@@ -86,6 +97,98 @@
     overflow-y: auto;
     padding: 20px;
     background: #ffffff;
+    will-change: scroll-position;
+}
+
+.attribute-selector-section {
+    background: #f9fafb;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    margin-bottom: 20px;
+}
+
+.attribute-checkboxes {
+    display: flex;
+    gap: 24px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+}
+
+.attribute-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 14px;
+    color: #374151;
+}
+
+.attribute-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #3b82f6;
+}
+
+.custom-attribute-selector {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.custom-attribute-selector label {
+    font-weight: 500;
+    color: #374151;
+    font-size: 14px;
+}
+
+.attribute-select {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: white;
+    font-size: 14px;
+    color: #1f2937;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.attribute-select:hover {
+    border-color: #3b82f6;
+}
+
+.attribute-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.correlation-selector {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.axis-selectors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.axis-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.axis-selector label {
+    font-weight: 500;
+    color: #374151;
+    font-size: 13px;
 }
 
 .stats-summary {
@@ -135,6 +238,7 @@
     padding: 20px;
     border-radius: 8px;
     border: 1px solid #e5e7eb;
+    contain: layout style paint;
 }
 
 .chart-title {

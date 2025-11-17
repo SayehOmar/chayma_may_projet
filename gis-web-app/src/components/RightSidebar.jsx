@@ -260,23 +260,7 @@ const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, ac
                             </div>
                         </div>
 
-                        <div className="section">
-                            <div className="section-title">Import data from</div>
-                            <div className="action-list">
-                                <button className="action-item">
-                                    <i className="fas fa-map" style={{ color: '#6b7280' }}></i>
-                                    OpenStreetMap
-                                </button>
-                                <button className="action-item">
-                                    <i className="fas fa-table" style={{ color: '#22c55e' }}></i>
-                                    Google Sheets
-                                </button>
-                                <button className="action-item">
-                                    <i className="fas fa-mountain" style={{ color: '#3b82f6' }}></i>
-                                    Mapbox Terrain
-                                </button>
-                            </div>
-                        </div>
+                       
 
                         <div className="section">
                             <div className="section-title">Color</div>
