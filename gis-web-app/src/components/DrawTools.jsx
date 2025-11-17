@@ -15,7 +15,9 @@ const DrawTools = ({ map, activeTool, setTool }) => {
 
         const handleMouseDown = (e) => {
             if (activeTool === 'draw') {
+                e.originalEvent.preventDefault();
                 setIsDrawing(true);
+                map.dragging.disable();
                 currentPolyline.current = L.polyline([e.latlng], { color: 'red', weight: 10 }).addTo(drawnItems.current);
             }
         };
@@ -27,28 +29,40 @@ const DrawTools = ({ map, activeTool, setTool }) => {
         };
 
         const handleMouseUp = () => {
-            setIsDrawing(false);
-            currentPolyline.current = null;
+            if (isDrawing) {
+                setIsDrawing(false);
+                map.dragging.enable();
+                currentPolyline.current = null;
+            }
         };
 
         if (activeTool === 'draw') {
             map.on('mousedown', handleMouseDown);
             map.on('mousemove', handleMouseMove);
             map.on('mouseup', handleMouseUp);
-            map.dragging.disable();
+            map.on('mouseleave', handleMouseUp); // Re-enable dragging if mouse leaves map while drawing
+            // Keep dragging enabled when not actively drawing
+            if (!isDrawing) {
+                map.dragging.enable();
+            }
         } else {
             map.off('mousedown', handleMouseDown);
             map.off('mousemove', handleMouseMove);
             map.off('mouseup', handleMouseUp);
-            if(activeTool !== 'pan'){
-                map.dragging.enable();
-            }
+            map.off('mouseleave', handleMouseUp);
+            // Always enable dragging for other tools
+            map.dragging.enable();
         }
 
         return () => {
             map.off('mousedown', handleMouseDown);
             map.off('mousemove', handleMouseMove);
             map.off('mouseup', handleMouseUp);
+            map.off('mouseleave', handleMouseUp);
+            // Ensure dragging is enabled when component unmounts
+            if (map) {
+                map.dragging.enable();
+            }
         };
     }, [map, activeTool, isDrawing]);
 

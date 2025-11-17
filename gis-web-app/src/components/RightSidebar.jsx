@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as L from 'leaflet';
+import { 
+    getLayerStatistics, 
+    getUniqueValues, 
+    calculateExtent, 
+    exportToCSV, 
+    exportToGeoJSON,
+    getLayerSummary,
+    countByCategory
+} from '../utils/dataFunctions';
 
-const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, activeTool, selectedLayer, projection, layerGroupsRef, map }) => {
+const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, activeTool, selectedLayer, projection, layerGroupsRef, map, onShowStatistics }) => {
     const [showLayerInfo, setShowLayerInfo] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState([]);
@@ -98,8 +107,8 @@ const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, ac
     return (
         <div className="right-sidebar">
             <div className="tabs">
-                <button className={`tab ${showLayerInfo ? 'active' : ''}`} onClick={() => setShowLayerInfo(!showLayerInfo)}>Data Actions</button>
-                <button className={`tab ${showLayerInfo ? 'active' : ''}`} onClick={() => setShowLayerInfo(!showLayerInfo)}>Layer Infos</button>
+                <button className={`tab ${!showLayerInfo ? 'active' : ''}`} onClick={() => setShowLayerInfo(false)}>Data Actions</button>
+                <button className={`tab ${showLayerInfo ? 'active' : ''}`} onClick={() => setShowLayerInfo(true)}>Layer Infos</button>
             </div>
             <div className="tab-content">
                 {showLayerInfo && selectedLayer ? (
@@ -136,19 +145,53 @@ const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, ac
                         <div className="layer-info">
                             <p><strong>Name:</strong> {selectedLayer.name}</p>
                             <p><strong>Features:</strong> {selectedLayer.data.features.length}</p>
-                            <p><strong>Geometry:</strong> {selectedLayer.data.features[0].geometry.type}</p>
+                            <p><strong>Geometry:</strong> {selectedLayer.data.features[0]?.geometry?.type || 'N/A'}</p>
                             <p><strong>CRS:</strong> {getCRS()}</p>
-
+                            <p><strong>Extent:</strong> {getExtent()}</p>
                         </div>
+                        
+                        {(() => {
+                            const stats = getLayerStatistics(selectedLayer);
+                            if (!stats) return null;
+                            
+                            return (
+                                <>
+                                    <div className="section-title">Statistics</div>
+                                    <div className="layer-info">
+                                        {Object.keys(stats.materialCount).length > 0 && (
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <strong>Materials:</strong>
+                                                <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                                    {Object.entries(stats.materialCount).map(([mat, count]) => (
+                                                        <li key={mat}>{mat}: {count}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        {stats.inRegionCount > 0 && (
+                                            <p><strong>In Region:</strong> {stats.inRegionCount} / {stats.totalFeatures}</p>
+                                        )}
+                                        {stats.movedCount > 0 && (
+                                            <p><strong>Moved Features:</strong> {stats.movedCount}</p>
+                                        )}
+                                    </div>
+                                </>
+                            );
+                        })()}
                         <div className="section-title">Attributes</div>
                         <div className="attribute-table-container">
                             {renderAttributes()}
                         </div>
                     </div>
+                ) : showLayerInfo && !selectedLayer ? (
+                    <div className="section">
+                        <p style={{ color: '#6b7280', textAlign: 'center', padding: '20px' }}>
+                            <i className="fas fa-info-circle" style={{ marginRight: '8px' }}></i>
+                            Select a layer to view information
+                        </p>
+                    </div>
                 ) : (
                     <>
-
-
                         <div className="section">
                             <div className="section-title">Basic</div>
                             <div className="icon-grid">
@@ -162,9 +205,55 @@ const RightSidebar = ({ selectedColor, selectColor, zoomIn, zoomOut, setTool, ac
                         </div>
 
                         <div className="section">
-                            <div className="section-title">Actions</div>
+                            <div className="section-title">Data Actions</div>
                             <div className="action-list">
-                                <button className="action-item">
+                                {selectedLayer && (
+                                    <>
+                                        <button 
+                                            className="action-item"
+                                            onClick={() => {
+                                                const csv = exportToCSV(selectedLayer);
+                                                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                                                const link = document.createElement('a');
+                                                link.href = URL.createObjectURL(blob);
+                                                link.download = `${selectedLayer.name}.csv`;
+                                                link.click();
+                                            }}
+                                            title="Export to CSV"
+                                        >
+                                            <i className="fas fa-file-csv" style={{ color: '#22c55e' }}></i>
+                                            Export to CSV
+                                        </button>
+                                        <button 
+                                            className="action-item"
+                                            onClick={() => {
+                                                const geojson = exportToGeoJSON(selectedLayer);
+                                                const blob = new Blob([geojson], { type: 'application/json' });
+                                                const link = document.createElement('a');
+                                                link.href = URL.createObjectURL(blob);
+                                                link.download = `${selectedLayer.name}.geojson`;
+                                                link.click();
+                                            }}
+                                            title="Export to GeoJSON"
+                                        >
+                                            <i className="fas fa-file-code" style={{ color: '#3b82f6' }}></i>
+                                            Export to GeoJSON
+                                        </button>
+                                        <button 
+                                            className="action-item"
+                                            onClick={() => {
+                                                if (onShowStatistics) {
+                                                    onShowStatistics();
+                                                }
+                                            }}
+                                            title="View Statistics"
+                                        >
+                                            <i className="fas fa-chart-bar" style={{ color: '#f59e0b' }}></i>
+                                            View Statistics
+                                        </button>
+                                    </>
+                                )}
+                                <button className="action-item" disabled={!selectedLayer}>
                                     <i className="fas fa-vector-square"></i>
                                     Vector Operations
                                 </button>

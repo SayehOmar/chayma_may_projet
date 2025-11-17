@@ -13,6 +13,7 @@ import RightSidebar from './components/RightSidebar';
 import Toolbar from './components/Toolbar';
 import BufferDialog from './components/BufferDialog';
 import DrawTools from './components/DrawTools';
+import StatisticsWindow from './components/StatisticsWindow';
 import './App.css';
 
 function App() {
@@ -24,16 +25,21 @@ function App() {
     const [selectedLayer, setSelectedLayer] = useState(null);
     const [activeTool, setTool] = useState('select');
     const layerGroupsRef = useRef({});
+    const [showStatisticsWindow, setShowStatisticsWindow] = useState(false);
+    
+    // Sidebar widths state
+    const [leftSidebarWidth, setLeftSidebarWidth] = useState(250);
+    const [rightSidebarWidth, setRightSidebarWidth] = useState(380);
+    const [isResizingLeft, setIsResizingLeft] = useState(false);
+    const [isResizingRight, setIsResizingRight] = useState(false);
 
     useEffect(() => {
         if (!map) return;
 
-        if (activeTool === 'pan') {
-            map.dragging.enable();
-        } else {
-            map.dragging.disable();
-        }
-    }, [activeTool, map]);
+        // Enable map dragging by default - users can always pan the map
+        // Dragging will only be disabled when actively drawing (handled in DrawTools)
+        map.dragging.enable();
+    }, [map]);
 
     const [projection, setProjection] = useState('EPSG:22391');
 
@@ -717,8 +723,55 @@ function App() {
         }
     };
 
+    // Resize handlers
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (isResizingLeft) {
+                const newWidth = e.clientX;
+                if (newWidth >= 200 && newWidth <= 600) {
+                    setLeftSidebarWidth(newWidth);
+                }
+            }
+            if (isResizingRight) {
+                const newWidth = window.innerWidth - e.clientX;
+                if (newWidth >= 200 && newWidth <= 600) {
+                    setRightSidebarWidth(newWidth);
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingLeft(false);
+            setIsResizingRight(false);
+        };
+
+        if (isResizingLeft || isResizingRight) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+    }, [isResizingLeft, isResizingRight]);
+
+    const handleLeftResizeStart = (e) => {
+        e.preventDefault();
+        setIsResizingLeft(true);
+    };
+
+    const handleRightResizeStart = (e) => {
+        e.preventDefault();
+        setIsResizingRight(true);
+    };
+
     return (
-        <div className="app-container">
+        <div className={`app-container ${isResizingLeft || isResizingRight ? 'resizing' : ''}`}>
             <input 
                 type="file" 
                 id="fileInput" 
@@ -727,37 +780,56 @@ function App() {
                 accept=".csv,.geojson,.json,.xlsx,.xls,.shp,.shx,.dbf,.prj,.cpg"
                 onChange={handleFileUpload}
             />
-            <LeftSidebar
-                layers={layers}
-                categories={categories}
-                toggleCategory={toggleCategory}
-                toggleLayerVisibility={toggleLayerVisibility}
-                deleteLayer={deleteLayer}
-                selectLayer={selectLayer}
-                selectedLayer={selectedLayer}
-            />
+            <div className="left-sidebar-wrapper" style={{ width: `${leftSidebarWidth}px` }}>
+                <LeftSidebar
+                    layers={layers}
+                    categories={categories}
+                    toggleCategory={toggleCategory}
+                    toggleLayerVisibility={toggleLayerVisibility}
+                    deleteLayer={deleteLayer}
+                    selectLayer={selectLayer}
+                    selectedLayer={selectedLayer}
+                />
+                <div 
+                    className="resize-handle resize-handle-right"
+                    onMouseDown={handleLeftResizeStart}
+                ></div>
+            </div>
             <div className="map-container">
                 <Map setMap={setMap} />
                 <Toolbar showBufferDialog={() => setShowBufferDialog(true)} />
                 <DrawTools map={map} activeTool={activeTool} setTool={setTool} />
             </div>
-            <RightSidebar
-                selectedColor={selectedColor}
-                selectColor={handleColorSelection}
-                zoomIn={zoomIn}
-                zoomOut={zoomOut}
-                setTool={setTool}
-                activeTool={activeTool}
-                selectedLayer={selectedLayer}
-                projection={projection}
-                layerGroupsRef={layerGroupsRef}
-                map={map}
-            />
+            <div className="right-sidebar-wrapper" style={{ width: `${rightSidebarWidth}px` }}>
+                <div 
+                    className="resize-handle resize-handle-left"
+                    onMouseDown={handleRightResizeStart}
+                ></div>
+                <RightSidebar
+                    selectedColor={selectedColor}
+                    selectColor={handleColorSelection}
+                    zoomIn={zoomIn}
+                    zoomOut={zoomOut}
+                    setTool={setTool}
+                    activeTool={activeTool}
+                    selectedLayer={selectedLayer}
+                    projection={projection}
+                    layerGroupsRef={layerGroupsRef}
+                    map={map}
+                    onShowStatistics={() => setShowStatisticsWindow(true)}
+                />
+            </div>
             <BufferDialog
                 show={showBufferDialog}
                 closeBufferDialog={() => setShowBufferDialog(false)}
                 runBufferAnalysis={runBufferAnalysis}
             />
+            {showStatisticsWindow && selectedLayer && (
+                <StatisticsWindow
+                    layer={selectedLayer}
+                    onClose={() => setShowStatisticsWindow(false)}
+                />
+            )}
         </div>
     );
 }
