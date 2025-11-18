@@ -718,17 +718,60 @@ function App() {
         return html;
     };
 
+    // Generate a random color that's different from existing layer colors
+    const getRandomUniqueColor = (existingColors) => {
+        const predefinedColors = [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
+            '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
+            '#14b8a6', '#22c55e', '#eab308', '#a855f7', '#d97706',
+            '#dc2626', '#0891b2', '#1f2937', '#6b7280'
+        ];
+        
+        // First try predefined colors that aren't used
+        const unusedPredefined = predefinedColors.filter(color => !existingColors.includes(color));
+        if (unusedPredefined.length > 0) {
+            return unusedPredefined[Math.floor(Math.random() * unusedPredefined.length)];
+        }
+        
+        // If all predefined are used, generate a random color
+        const generateRandomColor = () => {
+            const hue = Math.floor(Math.random() * 360);
+            const saturation = 60 + Math.floor(Math.random() * 30); // 60-90%
+            const lightness = 45 + Math.floor(Math.random() * 15); // 45-60%
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        };
+        
+        let newColor;
+        let attempts = 0;
+        do {
+            newColor = generateRandomColor();
+            attempts++;
+        } while (existingColors.includes(newColor) && attempts < 50);
+        
+        return newColor;
+    };
+
     const addLayer = (name, type, data, category) => {
         const id = Date.now() + Math.random();
+        
+        // Get existing layer colors
+        const existingColors = layers.map(l => l.color);
+        
+        // Assign a random unique color
+        const layerColor = getRandomUniqueColor(existingColors);
+        
         const newLayer = {
             id,
             name,
             type,
             data,
             visible: true,
-            color: selectedColor,
+            color: layerColor,
             category
         };
+        
+        // Update selected color to match the new layer's color
+        setSelectedColor(layerColor);
 
         // Add category if it doesn't exist
         if (!categories[category]) {
@@ -743,8 +786,9 @@ function App() {
         setLayers(prevLayers => {
             const updatedLayers = [...prevLayers, newLayer];
             
-            // Trigger spatial query check after state update
+            // Update z-index for all layers to ensure correct rendering order
             setTimeout(() => {
+                updateLayerZIndex(updatedLayers, categories);
                 checkSpatialQuery(updatedLayers);
             }, 100);
             
@@ -754,15 +798,15 @@ function App() {
         if (type === 'geojson' && map) {
             const geoLayer = L.geoJSON(data, {
                 style: {
-                    color: selectedColor,
+                    color: layerColor,
                     weight: 2,
                     fillOpacity: 0.3
                 },
                 pointToLayer: (feature, latlng) => {
                     return L.circleMarker(latlng, {
                         radius: 6,
-                        fillColor: selectedColor,
-                        color: selectedColor,
+                        fillColor: layerColor,
+                        color: layerColor,
                         weight: 2,
                         opacity: 1,
                         fillOpacity: 0.6
@@ -785,6 +829,14 @@ function App() {
             }
             
             layerGroupsRef.current[id] = geoLayer;
+            
+            // Update z-index after adding layer to ensure correct rendering order
+            setTimeout(() => {
+                setLayers(currentLayers => {
+                    updateLayerZIndex(currentLayers, categories);
+                    return currentLayers;
+                });
+            }, 100);
         }
     };
 
@@ -900,6 +952,28 @@ function App() {
         });
     };
 
+    // Update z-index for all layers based on category and layer order
+    const updateLayerZIndex = (layersList, categoriesList) => {
+        if (!map) return;
+        
+        const categoryOrder = Object.keys(categoriesList);
+        
+        categoryOrder.forEach((catName, catIdx) => {
+            const layersInCategory = layersList.filter(l => l.category === catName);
+            
+            layersInCategory.forEach((layer, layerIdx) => {
+                const leafletLayer = layerGroupsRef.current[layer.id];
+                if (leafletLayer) {
+                    // Category index * 1000 gives major separation between categories
+                    // Layer index within category gives minor separation
+                    // This ensures categories render in order, with layers within categories also ordered
+                    const zIndex = 1000 + (catIdx * 1000) + layerIdx;
+                    leafletLayer.setZIndex(zIndex);
+                }
+            });
+        });
+    };
+
     const moveCategory = (categoryName, direction) => {
         setCategories(prevCategories => {
             const categoryEntries = Object.entries(prevCategories);
@@ -925,20 +999,7 @@ function App() {
             
             // Update z-index for all layers based on new category order
             setLayers(prevLayers => {
-                const categoryOrder = Object.keys(newCategories);
-                categoryOrder.forEach((catName, catIdx) => {
-                    prevLayers.forEach(layer => {
-                        if (layer.category === catName) {
-                            const leafletLayer = layerGroupsRef.current[layer.id];
-                            if (leafletLayer && map) {
-                                // All layers in same category get same base z-index, with small offset for layer order within category
-                                const layersInCategory = prevLayers.filter(l => l.category === catName);
-                                const layerIndexInCategory = layersInCategory.indexOf(layer);
-                                leafletLayer.setZIndex(1000 + (catIdx * 100) + layerIndexInCategory);
-                            }
-                        }
-                    });
-                });
+                updateLayerZIndex(prevLayers, newCategories);
                 return prevLayers; // Return unchanged layers array
             });
             
@@ -957,52 +1018,70 @@ function App() {
     };
 
     const toggleLayerVisibility = (id) => {
-        setLayers(prevLayers => prevLayers.map(layer => {
-            if (layer.id === id) {
-                const newVisibility = !layer.visible;
-                const leafletLayer = layerGroupsRef.current[id];
-                
-                if (map && leafletLayer) {
-                    if (newVisibility) {
-                        map.addLayer(leafletLayer);
-                    } else {
-                        map.removeLayer(leafletLayer);
+        setLayers(prevLayers => {
+            const updatedLayers = prevLayers.map(layer => {
+                if (layer.id === id) {
+                    const newVisibility = !layer.visible;
+                    const leafletLayer = layerGroupsRef.current[id];
+                    
+                    if (map && leafletLayer) {
+                        if (newVisibility) {
+                            map.addLayer(leafletLayer);
+                        } else {
+                            map.removeLayer(leafletLayer);
+                        }
                     }
+                    return { ...layer, visible: newVisibility };
                 }
-                return { ...layer, visible: newVisibility };
-            }
-            return layer;
-        }));
+                return layer;
+            });
+            
+            // Update z-index after visibility change
+            setTimeout(() => {
+                updateLayerZIndex(updatedLayers, categories);
+            }, 50);
+            
+            return updatedLayers;
+        });
     };
 
     const changeLayerColor = (layerId, newColor) => {
-        setLayers(prevLayers => prevLayers.map(layer => {
-            if (layer.id === layerId) {
-                const leafletLayer = layerGroupsRef.current[layerId];
-                
-                if (map && leafletLayer) {
-                    // Update the style of the Leaflet layer
-                    if (typeof leafletLayer.setStyle === 'function') {
-                        leafletLayer.setStyle({
-                            color: newColor,
-                            fillColor: newColor
-                        });
-                    } else if (typeof leafletLayer.eachLayer === 'function') {
-                        leafletLayer.eachLayer((subLayer) => {
-                            if (typeof subLayer.setStyle === 'function') {
-                                subLayer.setStyle({
-                                    color: newColor,
-                                    fillColor: newColor
-                                });
-                            }
-                        });
+        setLayers(prevLayers => {
+            const updatedLayers = prevLayers.map(layer => {
+                if (layer.id === layerId) {
+                    const leafletLayer = layerGroupsRef.current[layerId];
+                    
+                    if (map && leafletLayer) {
+                        // Update the style of the Leaflet layer
+                        if (typeof leafletLayer.setStyle === 'function') {
+                            leafletLayer.setStyle({
+                                color: newColor,
+                                fillColor: newColor
+                            });
+                        } else if (typeof leafletLayer.eachLayer === 'function') {
+                            leafletLayer.eachLayer((subLayer) => {
+                                if (typeof subLayer.setStyle === 'function') {
+                                    subLayer.setStyle({
+                                        color: newColor,
+                                        fillColor: newColor
+                                    });
+                                }
+                            });
+                        }
                     }
+                    
+                    return { ...layer, color: newColor };
                 }
-                
-                return { ...layer, color: newColor };
-            }
-            return layer;
-        }));
+                return layer;
+            });
+            
+            // Update z-index after color change to ensure order is maintained
+            setTimeout(() => {
+                updateLayerZIndex(updatedLayers, categories);
+            }, 50);
+            
+            return updatedLayers;
+        });
     };
 
     const handleColorSelection = (color) => {
@@ -1028,8 +1107,9 @@ function App() {
         setLayers(prevLayers => {
             const updatedLayers = prevLayers.filter(layer => layer.id !== id);
             
-            // Trigger spatial query check after deletion
+            // Update z-index and trigger spatial query check after deletion
             setTimeout(() => {
+                updateLayerZIndex(updatedLayers, categories);
                 checkSpatialQuery(updatedLayers);
             }, 100);
             
