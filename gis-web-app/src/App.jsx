@@ -7,6 +7,7 @@ import L from 'leaflet';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import getShapefile, { parseShp, parseDbf } from 'shpjs';
+import toGeoJSON from '@mapbox/togeojson';
 import LeftSidebar from './components/LeftSidebar';
 import Map from './components/Map';
 import RightSidebar from './components/RightSidebar';
@@ -446,6 +447,120 @@ function App() {
                     }
                 };
                 reader.readAsText(file);
+            } else if (ext === 'kml') {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        let kmlText = e.target.result;
+                        
+                        // Fix common KML namespace issues
+                        // Add missing xsi namespace if schemaLocation is used but xsi is not defined
+                        if (kmlText.includes('schemaLocation') && !kmlText.includes('xmlns:xsi')) {
+                            // Try to find the root element and add xsi namespace
+                            kmlText = kmlText.replace(
+                                /<kml([^>]*)>/i,
+                                '<kml$1 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                            );
+                        }
+                        
+                        // Also ensure standard KML namespace is present
+                        if (!kmlText.includes('xmlns=') && !kmlText.includes('xmlns:')) {
+                            kmlText = kmlText.replace(
+                                /<kml([^>]*)>/i,
+                                '<kml$1 xmlns="http://www.opengis.net/kml/2.2">'
+                            );
+                        } else if (kmlText.includes('<kml') && !kmlText.includes('xmlns="http://www.opengis.net/kml/2.2"') && !kmlText.includes("xmlns='http://www.opengis.net/kml/2.2'")) {
+                            // Add KML namespace if missing
+                            kmlText = kmlText.replace(
+                                /<kml([^>]*)>/i,
+                                '<kml$1 xmlns="http://www.opengis.net/kml/2.2">'
+                            );
+                        }
+                        
+                        // Use browser's native DOMParser (works better with @mapbox/togeojson)
+                        const parser = new window.DOMParser();
+                        const kml = parser.parseFromString(kmlText, 'text/xml');
+                        
+                        // Check for parsing errors
+                        const parserError = kml.getElementsByTagName('parsererror')[0];
+                        if (parserError) {
+                            // Try to extract a cleaner error message
+                            let errorText = '';
+                            const errorContent = parserError.textContent || parserError.innerText || '';
+                            
+                            // Extract just the error message, not the full page rendering
+                            const errorMatch = errorContent.match(/error on line \d+ at column \d+:(.+?)(?:\n|$)/);
+                            if (errorMatch) {
+                                errorText = errorMatch[1].trim();
+                            } else {
+                                errorText = errorContent.split('\n')[0] || 'Unknown XML parsing error';
+                            }
+                            
+                            throw new Error('Invalid XML format: ' + errorText);
+                        }
+                        
+                        // Convert KML to GeoJSON
+                        const geojson = toGeoJSON.kml(kml);
+                        
+                        if (!geojson || !geojson.features || geojson.features.length === 0) {
+                            alert(`KML file ${fileName} contains no features.`);
+                            return;
+                        }
+                        
+                        // KML files often have extended data in properties, preserve it
+                        const placemarks = kml.getElementsByTagName('Placemark');
+                        geojson.features.forEach((feature, index) => {
+                            // Ensure properties object exists
+                            if (!feature.properties) {
+                                feature.properties = {};
+                            }
+                            
+                            // Try to extract additional properties from KML Placemark
+                            if (placemarks[index]) {
+                                const placemark = placemarks[index];
+                                
+                                // Extract ExtendedData
+                                const extendedData = placemark.getElementsByTagName('ExtendedData')[0];
+                                if (extendedData) {
+                                    const dataElements = extendedData.getElementsByTagName('Data');
+                                    for (let i = 0; i < dataElements.length; i++) {
+                                        const dataEl = dataElements[i];
+                                        const name = dataEl.getAttribute('name');
+                                        const valueEl = dataEl.getElementsByTagName('value')[0];
+                                        if (name && valueEl) {
+                                            const value = valueEl.textContent || valueEl.text || '';
+                                            feature.properties[name] = value.trim();
+                                        }
+                                    }
+                                }
+                                
+                                // Extract name and description
+                                const nameEl = placemark.getElementsByTagName('name')[0];
+                                const descEl = placemark.getElementsByTagName('description')[0];
+                                
+                                if (nameEl) {
+                                    const nameValue = nameEl.textContent || nameEl.text || '';
+                                    if (nameValue.trim() && !feature.properties.name) {
+                                        feature.properties.name = nameValue.trim();
+                                    }
+                                }
+                                if (descEl) {
+                                    const descValue = descEl.textContent || descEl.text || '';
+                                    if (descValue.trim() && !feature.properties.description) {
+                                        feature.properties.description = descValue.trim();
+                                    }
+                                }
+                            }
+                        });
+                        
+                        console.log('Converted KML to GeoJSON:', geojson);
+                        processGeoJSON(geojson, fileNameWithoutExt, fileName);
+                    } catch (error) {
+                        console.error('Error parsing KML file:', error);
+                        alert(`Error parsing KML file ${fileName}: ${error.message}\n\nPlease ensure the file is a valid KML format.`);
+                    }
+                };
+                reader.readAsText(file);
             }
         }
         event.target.value = '';
@@ -836,7 +951,7 @@ function App() {
                 id="fileInput" 
                 style={{ display: 'none' }} 
                 multiple 
-                accept=".csv,.geojson,.json,.xlsx,.xls,.shp,.shx,.dbf,.prj,.cpg"
+                accept=".csv,.geojson,.json,.xlsx,.xls,.shp,.shx,.dbf,.prj,.cpg,.kml"
                 onChange={handleFileUpload}
             />
             <div className="left-sidebar-wrapper" style={{ width: `${leftSidebarWidth}px` }}>
