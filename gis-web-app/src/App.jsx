@@ -8,6 +8,7 @@ import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import getShapefile, { parseShp, parseDbf } from 'shpjs';
 import toGeoJSON from '@mapbox/togeojson';
+import { pointInLayerPolygons } from './utils/dataFunctions';
 import LeftSidebar from './components/LeftSidebar';
 import Map from './components/Map';
 import RightSidebar from './components/RightSidebar';
@@ -26,6 +27,7 @@ function App() {
     const [selectedLayer, setSelectedLayer] = useState(null);
     const [activeTool, setTool] = useState('select');
     const layerGroupsRef = useRef({});
+    const highlightLayersRef = useRef({}); // For yellow highlighted points
     const [showStatisticsWindow, setShowStatisticsWindow] = useState(false);
     
     // Sidebar widths state
@@ -738,7 +740,16 @@ function App() {
             }));
         }
 
-        setLayers(prevLayers => [...prevLayers, newLayer]);
+        setLayers(prevLayers => {
+            const updatedLayers = [...prevLayers, newLayer];
+            
+            // Trigger spatial query check after state update
+            setTimeout(() => {
+                checkSpatialQuery(updatedLayers);
+            }, 100);
+            
+            return updatedLayers;
+        });
 
         if (type === 'geojson' && map) {
             const geoLayer = L.geoJSON(data, {
@@ -775,6 +786,164 @@ function App() {
             
             layerGroupsRef.current[id] = geoLayer;
         }
+    };
+
+    // Spatial query: Highlight CSV points that are inside KML polygons
+    const checkSpatialQuery = (layersList) => {
+        if (!map) return;
+        
+        // Find CSV/Excel point layers and KML polygon layers
+        const pointLayers = layersList.filter(layer => {
+            if (!layer.data || !layer.data.features || layer.data.features.length === 0) return false;
+            const firstFeature = layer.data.features[0];
+            return firstFeature && firstFeature.geometry && firstFeature.geometry.type === 'Point';
+        });
+        
+        const polygonLayers = layersList.filter(layer => {
+            if (!layer.data || !layer.data.features || layer.data.features.length === 0) return false;
+            const firstFeature = layer.data.features[0];
+            return firstFeature && firstFeature.geometry && 
+                   (firstFeature.geometry.type === 'Polygon' || firstFeature.geometry.type === 'MultiPolygon');
+        });
+        
+        if (pointLayers.length === 0 || polygonLayers.length === 0) {
+            // Remove existing highlights if no valid layers
+            Object.values(highlightLayersRef.current).forEach(highlightLayer => {
+                if (map && highlightLayer) {
+                    map.removeLayer(highlightLayer);
+                }
+            });
+            highlightLayersRef.current = {};
+            return;
+        }
+        
+        // Check each point layer against each polygon layer
+        pointLayers.forEach(pointLayer => {
+            const highlightedFeatures = [];
+            
+            pointLayer.data.features.forEach(feature => {
+                if (feature.geometry && feature.geometry.type === 'Point') {
+                    const point = feature.geometry.coordinates;
+                    
+                    // Check if point is inside any polygon layer
+                    const isInside = polygonLayers.some(polyLayer => 
+                        pointInLayerPolygons(point, polyLayer)
+                    );
+                    
+                    if (isInside) {
+                        highlightedFeatures.push(feature);
+                    }
+                }
+            });
+            
+            // Remove old highlight layer for this point layer
+            if (highlightLayersRef.current[pointLayer.id]) {
+                map.removeLayer(highlightLayersRef.current[pointLayer.id]);
+            }
+            
+            // Create new highlight layer with yellow outer ring and original color inside
+            if (highlightedFeatures.length > 0) {
+                const originalColor = pointLayer.color || '#3b82f6';
+                
+                const highlightLayer = L.geoJSON({
+                    type: 'FeatureCollection',
+                    features: highlightedFeatures
+                }, {
+                    pointToLayer: (feature, latlng) => {
+                        // Create a custom div icon with yellow outer circle and original color inner circle
+                        const outerRadius = 10;
+                        const innerRadius = 6;
+                        
+                        const icon = L.divIcon({
+                            className: 'highlighted-point-marker',
+                            html: `
+                                <div style="
+                                    width: ${outerRadius * 2}px;
+                                    height: ${outerRadius * 2}px;
+                                    border-radius: 50%;
+                                    background: #fbbf24;
+                                    border: 2px solid #f59e0b;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+                                ">
+                                    <div style="
+                                        width: ${innerRadius * 2}px;
+                                        height: ${innerRadius * 2}px;
+                                        border-radius: 50%;
+                                        background: ${originalColor};
+                                        border: 1px solid ${originalColor};
+                                    "></div>
+                                </div>
+                            `,
+                            iconSize: [outerRadius * 2, outerRadius * 2],
+                            iconAnchor: [outerRadius, outerRadius]
+                        });
+                        
+                        return L.marker(latlng, { icon: icon });
+                    },
+                    onEachFeature: (feature, layer) => {
+                        if (feature.properties) {
+                            const popupContent = createPopupContent(feature.properties);
+                            layer.bindPopup(popupContent, {
+                                className: 'custom-popup',
+                                maxWidth: 400,
+                                maxHeight: 500
+                            });
+                        }
+                    }
+                }).addTo(map);
+                
+                highlightLayersRef.current[pointLayer.id] = highlightLayer;
+            }
+        });
+    };
+
+    const moveCategory = (categoryName, direction) => {
+        setCategories(prevCategories => {
+            const categoryEntries = Object.entries(prevCategories);
+            const index = categoryEntries.findIndex(([name]) => name === categoryName);
+            
+            if (index === -1) return prevCategories;
+            
+            const targetIndex = direction === 'up' ? index - 1 : index + 1;
+            
+            if (targetIndex < 0 || targetIndex >= categoryEntries.length) {
+                return prevCategories; // Can't move further
+            }
+            
+            // Swap categories
+            const newEntries = [...categoryEntries];
+            [newEntries[index], newEntries[targetIndex]] = [newEntries[targetIndex], newEntries[index]];
+            
+            // Rebuild categories object with new order
+            const newCategories = {};
+            newEntries.forEach(([name, data]) => {
+                newCategories[name] = data;
+            });
+            
+            // Update z-index for all layers based on new category order
+            setLayers(prevLayers => {
+                const categoryOrder = Object.keys(newCategories);
+                categoryOrder.forEach((catName, catIdx) => {
+                    prevLayers.forEach(layer => {
+                        if (layer.category === catName) {
+                            const leafletLayer = layerGroupsRef.current[layer.id];
+                            if (leafletLayer && map) {
+                                // All layers in same category get same base z-index, with small offset for layer order within category
+                                const layersInCategory = prevLayers.filter(l => l.category === catName);
+                                const layerIndexInCategory = layersInCategory.indexOf(layer);
+                                leafletLayer.setZIndex(1000 + (catIdx * 100) + layerIndexInCategory);
+                            }
+                        }
+                    });
+                });
+                return prevLayers; // Return unchanged layers array
+            });
+            
+            return newCategories;
+        });
     };
 
     const toggleCategory = (name) => {
@@ -850,8 +1019,21 @@ function App() {
             delete layerGroupsRef.current[id];
         }
         
+        // Remove highlight layer if exists
+        if (highlightLayersRef.current[id]) {
+            map.removeLayer(highlightLayersRef.current[id]);
+            delete highlightLayersRef.current[id];
+        }
+        
         setLayers(prevLayers => {
-            const remainingLayers = prevLayers.filter(layer => layer.id !== id);
+            const updatedLayers = prevLayers.filter(layer => layer.id !== id);
+            
+            // Trigger spatial query check after deletion
+            setTimeout(() => {
+                checkSpatialQuery(updatedLayers);
+            }, 100);
+            
+            const remainingLayers = updatedLayers;
             
             // Check if this was the last layer in its category
             const deletedLayer = prevLayers.find(layer => layer.id === id);
@@ -963,6 +1145,7 @@ function App() {
                 deleteLayer={deleteLayer}
                 selectLayer={selectLayer}
                 selectedLayer={selectedLayer}
+                moveCategory={moveCategory}
             />
                 <div 
                     className="resize-handle resize-handle-right"

@@ -196,10 +196,50 @@ body {
 .category-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
     padding: 8px 12px;
-    cursor: pointer;
     transition: background 0.2s;
+}
+
+.category-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    cursor: pointer;
+}
+
+.category-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.category-folder:hover .category-actions {
+    opacity: 1;
+}
+
+.category-order-btn {
+    padding: 4px 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+    color: #6b7280;
+    transition: color 0.2s, background 0.2s;
+    border-radius: 3px;
+}
+
+.category-order-btn:hover:not(:disabled) {
+    background: #e5e7eb;
+    color: #1f2937;
+}
+
+.category-order-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
 }
 
 .category-header:hover {
@@ -270,12 +310,28 @@ body {
 }
 
 .layer-actions button {
-    padding: 4px;
+    padding: 4px 6px;
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
     color: #6b7280;
+    transition: color 0.2s, background 0.2s;
+    border-radius: 3px;
+}
+
+.layer-actions button:hover:not(:disabled) {
+    background: #e5e7eb;
+    color: #1f2937;
+}
+
+.layer-actions button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.layer-order-btn {
+    font-size: 10px !important;
 }
 
 /* Map Container */
@@ -756,4 +812,15 @@ body {
 
 .popup-body::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
+}
+
+/* Highlighted Point Marker */
+.highlighted-point-marker {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.highlighted-point-marker > div {
+    pointer-events: auto;
 }

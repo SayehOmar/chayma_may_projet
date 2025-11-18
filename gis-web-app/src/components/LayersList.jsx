@@ -2,10 +2,12 @@
 import React from 'react';
 import Category from './Category';
 
-const LayersList = ({ layers, categories, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer }) => {
+const LayersList = ({ layers, categories, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory }) => {
+    const categoryEntries = Object.entries(categories);
+    
     return (
         <div className="layers-list">
-            {Object.entries(categories).map(([name, data]) => (
+            {categoryEntries.map(([name, data], index) => (
                 <Category
                     key={name}
                     name={name}
@@ -16,6 +18,9 @@ const LayersList = ({ layers, categories, toggleCategory, toggleLayerVisibility,
                     deleteLayer={deleteLayer}
                     selectLayer={selectLayer}
                     selectedLayer={selectedLayer}
+                    moveCategory={moveCategory}
+                    isFirst={index === 0}
+                    isLast={index === categoryEntries.length - 1}
                 />
             ))}
         </div>

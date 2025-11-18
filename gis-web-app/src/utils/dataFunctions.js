@@ -307,5 +307,68 @@ export const countByCategory = (layer, categoryProperty) => {
     });
 
     return counts;
-};
+}
+
+/**
+ * Point-in-polygon algorithm (Ray casting algorithm)
+ * Checks if a point is inside a polygon
+ * @param {Array} point - [longitude, latitude]
+ * @param {Array} polygon - Array of [longitude, latitude] coordinates
+ * @returns {boolean} - True if point is inside polygon
+ */
+export function pointInPolygon(point, polygon) {
+    const [x, y] = point;
+    let inside = false;
+    
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const [xi, yi] = polygon[i];
+        const [xj, yj] = polygon[j];
+        
+        const intersect = ((yi > y) !== (yj > y)) && 
+                         (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    
+    return inside;
+}
+
+/**
+ * Check if a point is inside any polygon from a GeoJSON layer
+ * @param {Array} point - [longitude, latitude]
+ * @param {Object} layer - GeoJSON layer object
+ * @returns {boolean} - True if point is inside any polygon in the layer
+ */
+export function pointInLayerPolygons(point, layer) {
+    if (!layer || !layer.data || !layer.data.features) {
+        return false;
+    }
+    
+    for (const feature of layer.data.features) {
+        if (!feature.geometry) continue;
+        
+        const geom = feature.geometry;
+        let coordinates = [];
+        
+        // Handle different geometry types
+        if (geom.type === 'Polygon') {
+            coordinates = geom.coordinates[0]; // Outer ring
+        } else if (geom.type === 'MultiPolygon') {
+            // Check all polygons
+            for (const polygon of geom.coordinates) {
+                if (pointInPolygon(point, polygon[0])) {
+                    return true;
+                }
+            }
+            continue;
+        } else {
+            continue; // Skip non-polygon geometries
+        }
+        
+        if (pointInPolygon(point, coordinates)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
 

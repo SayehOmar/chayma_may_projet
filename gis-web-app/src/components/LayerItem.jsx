@@ -9,10 +9,10 @@ const LayerItem = ({ layer, toggleLayerVisibility, deleteLayer, selectLayer, sel
             <div className="color-indicator" style={{ backgroundColor: layer.color }}></div>
             <span className="layer-name">{layer.name}</span>
             <div className="layer-actions">
-                <button onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer.id); }}>
+                <button onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer.id); }} title="Toggle Visibility">
                     <i className={`fas fa-eye${layer.visible ? '' : '-slash'}`}></i>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }}>
+                <button onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }} title="Delete">
                     <i className="fas fa-trash"></i>
                 </button>
             </div>
