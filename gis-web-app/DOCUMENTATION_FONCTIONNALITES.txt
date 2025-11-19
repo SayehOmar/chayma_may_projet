@@ -1,0 +1,475 @@
+================================================================================
+DOCUMENTATION DES FONCTIONNALITÉS SIG
+Application Web SIG (Système d'Information Géographique)
+Projet de Thèse
+================================================================================
+
+TABLE DES MATIÈRES
+================================================================================
+
+1. INTRODUCTION
+2. IMPORTATION DE DONNÉES GÉOSPATIALES
+3. GESTION DES COUCHES
+4. NAVIGATION ET INTERACTION AVEC LA CARTE
+5. ANALYSE SPATIALE
+6. VISUALISATION DES ATTRIBUTS
+7. EXPORTATION DE DONNÉES
+
+================================================================================
+1. INTRODUCTION
+================================================================================
+
+Cette application web SIG est une plateforme interactive permettant de visualiser,
+gérer et analyser des données géospatiales. Elle supporte plusieurs formats de
+fichiers géographiques standards et offre des outils d'analyse spatiale avancés.
+
+L'interface est composée de trois panneaux principaux :
+- Panneau gauche : Gestion des couches
+- Panneau central : Carte interactive
+- Panneau droit : Outils et informations sur les données
+
+================================================================================
+2. IMPORTATION DE DONNÉES GÉOSPATIALES
+================================================================================
+
+2.1. FORMATS DE FICHIERS SUPPORTÉS
+
+L'application accepte les formats standards suivants :
+- CSV (.csv) : Fichiers texte avec coordonnées X/Y
+- Excel (.xlsx, .xls) : Fichiers Excel avec données géospatiales
+- GeoJSON (.geojson, .json) : Format standard pour données géographiques
+- Shapefile (.shp, .shx, .dbf, .prj, .cpg) : Format ESRI Shapefile
+- KML (.kml) : Format Google Earth / Keyhole Markup Language
+
+2.2. IMPORTATION DE FICHIERS CSV/EXCEL
+
+Fonctionnement :
+L'application détecte automatiquement les colonnes contenant les coordonnées
+géographiques. Elle recherche les colonnes nommées X, Y, Sites, A, Name, ou Nom
+(cas insensible). Les coordonnées sont transformées du système EPSG:22391
+(Tunisie UTM Zone 32N) vers EPSG:4326 (WGS84) pour l'affichage sur la carte.
+
+Étapes :
+1. Cliquer sur l'icône d'upload (📤) dans le panneau gauche
+2. Sélectionner un fichier CSV ou Excel depuis votre ordinateur
+3. L'application analyse automatiquement le fichier et détecte les colonnes de coordonnées
+4. Transformation automatique des coordonnées vers WGS84
+5. Une nouvelle couche est créée et affichée sur la carte
+6. La couche apparaît dans la liste des couches du panneau gauche
+7. La carte zoome automatiquement sur l'étendue des données
+
+2.3. IMPORTATION DE FICHIERS GEOJSON
+
+Fonctionnement :
+L'application valide et normalise les données GeoJSON. Elle supporte les types
+FeatureCollection, Feature unique, et objets Geometry. Si le fichier contient
+un système de coordonnées différent de WGS84, l'application détecte et transforme
+automatiquement les coordonnées (par exemple, EPSG:32632 vers EPSG:4326).
+
+Étapes :
+1. Cliquer sur l'icône d'upload dans le panneau gauche
+2. Sélectionner un fichier GeoJSON
+3. L'application valide la structure du fichier
+4. Détection automatique du système de coordonnées (CRS)
+5. Si nécessaire, transformation automatique des coordonnées vers WGS84
+6. La couche est ajoutée à la carte avec zoom automatique sur l'étendue
+7. Toutes les géométries (points, lignes, polygones) sont correctement affichées
+
+2.4. IMPORTATION DE SHAPEFILES
+
+Fonctionnement :
+Les Shapefiles nécessitent plusieurs fichiers (.shp, .shx, .dbf, .prj, .cpg).
+L'application groupe automatiquement ces fichiers lors de l'importation et les
+traite ensemble pour créer une couche complète avec géométries et attributs.
+Le fichier .prj contient les informations de projection qui sont utilisées
+pour la transformation des coordonnées.
+
+Étapes :
+1. Cliquer sur l'icône d'upload
+2. Sélectionner tous les fichiers du Shapefile (maintenir Ctrl/Cmd pour sélection multiple)
+3. L'application regroupe automatiquement les fichiers par nom de base
+4. Lecture des géométries depuis le fichier .shp
+5. Lecture des attributs depuis le fichier .dbf
+6. Lecture du système de coordonnées depuis le fichier .prj
+7. Transformation des coordonnées vers WGS84 si nécessaire
+8. La couche est créée avec toutes les géométries et attributs
+9. La carte zoome automatiquement sur l'étendue du Shapefile
+
+2.5. IMPORTATION DE FICHIERS KML
+
+Fonctionnement :
+Les fichiers KML sont convertis en GeoJSON pour l'affichage. L'application
+gère automatiquement les déclarations de namespace XML manquantes et convertit
+toutes les géométries KML (points, lignes, polygones) en format GeoJSON.
+Les polygones KML peuvent être utilisés pour les requêtes spatiales.
+
+Étapes :
+1. Cliquer sur l'icône d'upload
+2. Sélectionner un fichier KML
+3. L'application convertit le KML en GeoJSON
+4. La couche est ajoutée à la carte
+5. Les polygones KML peuvent être utilisés pour les requêtes spatiales point-dans-polygone
+
+2.6. TRANSFORMATION AUTOMATIQUE DES COORDONNÉES
+
+Fonctionnement :
+L'application utilise la bibliothèque Proj4 pour transformer les coordonnées
+entre différents systèmes de référence. Elle détecte automatiquement le CRS
+(Coordinate Reference System) du fichier et transforme vers WGS84 (EPSG:4326)
+si nécessaire. Cette fonctionnalité est essentielle pour l'interopérabilité
+des données provenant de différentes sources.
+
+Systèmes supportés :
+- EPSG:22391 (Tunisie UTM Zone 32N)
+- EPSG:32632 (WGS84 UTM Zone 32N)
+- EPSG:4326 (WGS84 - système par défaut)
+- Autres systèmes détectés depuis les fichiers .prj
+
+Processus de transformation :
+1. Détection du CRS source (depuis fichier .prj, propriétés GeoJSON, ou valeurs de coordonnées)
+2. Validation des coordonnées source
+3. Transformation vers EPSG:4326 (WGS84) en utilisant Proj4
+4. Validation des coordonnées transformées (vérification des limites WGS84)
+5. Mise à jour des géométries avec les nouvelles coordonnées
+
+================================================================================
+3. GESTION DES COUCHES
+================================================================================
+
+3.1. ORGANISATION PAR CATÉGORIES
+
+Fonctionnement :
+Les couches sont automatiquement organisées par catégories basées sur le nom
+du fichier source. Chaque catégorie peut être développée ou réduite pour
+afficher/masquer les couches qu'elle contient. Cette organisation facilite
+la gestion de multiples couches de données.
+
+Étapes pour développer/réduire une catégorie :
+1. Cliquer sur le chevron (▶) à gauche du nom de la catégorie
+2. La catégorie se développe pour afficher toutes ses couches
+3. Cliquer à nouveau pour réduire la catégorie
+
+3.2. VISIBILITÉ DES COUCHES
+
+Fonctionnement :
+Chaque couche peut être affichée ou masquée sur la carte sans être supprimée.
+L'état de visibilité est indiqué par une icône d'œil dans la liste des couches.
+Cette fonctionnalité permet de comparer différentes couches ou de simplifier
+la visualisation en masquant certaines données.
+
+Étapes :
+1. Localiser la couche dans le panneau gauche
+2. Cliquer sur l'icône d'œil (👁) à côté du nom de la couche
+3. La couche disparaît/apparaît sur la carte
+4. L'icône change pour indiquer l'état (œil ouvert/fermé)
+
+3.3. SÉLECTION D'UNE COUCHE
+
+Fonctionnement :
+Sélectionner une couche permet d'accéder à ses informations, attributs,
+et actions disponibles dans le panneau droit. Une seule couche peut être
+sélectionnée à la fois pour l'analyse.
+
+Étapes :
+1. Cliquer sur le nom de la couche dans le panneau gauche
+2. La couche est mise en surbrillance
+3. Le panneau droit affiche les informations et actions disponibles
+4. Les outils de la barre latérale droite deviennent actifs
+
+3.4. CHANGEMENT DE COULEUR DES COUCHES
+
+Fonctionnement :
+Chaque couche se voit attribuer automatiquement une couleur unique aléatoire
+lors de son importation. L'utilisateur peut modifier cette couleur à tout moment.
+La couleur affecte les bordures et remplissages des géométries sur la carte.
+Cette fonctionnalité est importante pour la différenciation visuelle des couches.
+
+Étapes :
+1. Sélectionner la couche dont on veut changer la couleur
+2. Dans le panneau droit, section "Color", visualiser la palette de couleurs
+3. Cliquer sur la couleur désirée dans la palette
+4. La couleur de la couche sur la carte est immédiatement mise à jour
+5. La couleur est également mise à jour dans l'indicateur de la catégorie
+
+3.5. SUPPRESSION D'UNE COUCHE
+
+Fonctionnement :
+La suppression d'une couche la retire complètement de la carte et de la liste.
+Si c'était la dernière couche d'une catégorie, la catégorie est également supprimée.
+
+Étapes :
+1. Localiser la couche à supprimer dans le panneau gauche
+2. Cliquer sur l'icône de corbeille (🗑️) à côté du nom de la couche
+3. La couche disparaît de la carte et de la liste
+
+3.6. RÉORGANISATION DES CATÉGORIES (ORDRE DE SUPERPOSITION)
+
+Fonctionnement :
+Les catégories peuvent être réorganisées pour contrôler l'ordre de superposition
+des couches sur la carte. Les catégories en haut de la liste sont affichées
+au-dessus des catégories en bas. Cette fonctionnalité affecte également l'ordre
+de rendu sur la carte via les z-index, ce qui est crucial pour la visualisation
+correcte de données superposées.
+
+Étapes pour déplacer une catégorie vers le haut :
+1. Localiser la catégorie dans le panneau gauche
+2. Cliquer sur le bouton flèche vers le haut (↑) dans l'en-tête de la catégorie
+3. La catégorie se déplace d'une position vers le haut
+4. Les couches de cette catégorie sont maintenant rendues au-dessus des autres
+5. L'ordre de superposition sur la carte est mis à jour automatiquement
+
+Étapes pour déplacer une catégorie vers le bas :
+1. Localiser la catégorie dans le panneau gauche
+2. Cliquer sur le bouton flèche vers le bas (↓) dans l'en-tête de la catégorie
+3. La catégorie se déplace d'une position vers le bas
+4. Les couches de cette catégorie sont maintenant rendues en dessous des autres
+
+Note : Les boutons sont désactivés si la catégorie est déjà en première ou
+dernière position.
+
+================================================================================
+4. NAVIGATION ET INTERACTION AVEC LA CARTE
+================================================================================
+
+4.1. ZOOM AVANT/ARRIÈRE
+
+Fonctionnement :
+Les outils de zoom permettent d'agrandir ou de réduire la vue de la carte.
+Le zoom peut également être effectué avec la molette de la souris. Le zoom
+est essentiel pour l'analyse détaillée des données géospatiales.
+
+Étapes pour zoomer avant :
+1. Cliquer sur l'icône d'agrandissement (🔍+) dans le panneau droit
+2. La carte zoome d'un niveau
+3. Ou utiliser la molette de la souris vers le haut
+
+Étapes pour zoomer arrière :
+1. Cliquer sur l'icône de réduction (🔍-) dans le panneau droit
+2. La carte dézoome d'un niveau
+3. Ou utiliser la molette de la souris vers le bas
+
+4.2. DÉPLACEMENT DE LA CARTE (PAN)
+
+Fonctionnement :
+Le déplacement de la carte permet de naviguer dans différentes zones sans
+changer le niveau de zoom. Par défaut, le déplacement de la carte est toujours
+activé en cliquant et faisant glisser.
+
+Étapes :
+1. Cliquer et maintenir le bouton de la souris sur la carte
+2. Faire glisser la souris pour déplacer la carte
+3. Relâcher le bouton pour arrêter le déplacement
+
+4.3. INTERACTION AVEC LES FEATURES (CLIC SUR LES POINTS)
+
+Fonctionnement :
+En cliquant sur un point de la carte, une popup s'affiche avec tous les attributs
+du point. Cette fonctionnalité permet d'accéder rapidement aux informations
+associées à chaque feature géographique.
+
+Étapes :
+1. Cliquer sur un point de la carte
+2. Une popup s'affiche avec tous les attributs du point
+3. La popup est stylée pour correspondre à l'interface de l'application
+4. Tous les attributs sont affichés dans un tableau formaté
+5. Cliquer en dehors de la popup pour la fermer
+
+Caractéristiques de la popup :
+- En-tête avec le nom du point (si disponible dans les attributs)
+- Tableau des attributs avec clés et valeurs
+- Style cohérent avec l'interface principale
+- Protection contre les attaques XSS (échappement HTML)
+
+================================================================================
+5. ANALYSE SPATIALE
+================================================================================
+
+5.1. REQUÊTE SPATIALE POINT-DANS-POLYGONE
+
+Fonctionnement :
+L'application détecte automatiquement les couches de points (CSV/Excel) et les
+couches de polygones (KML, GeoJSON Polygon). Si des points se trouvent à l'intérieur
+des polygones, ils sont automatiquement mis en surbrillance avec un style spécial.
+Cette fonctionnalité est fondamentale pour l'analyse spatiale et permet d'identifier
+rapidement les relations spatiales entre différents types de données.
+
+Étapes :
+1. Importer une couche de points (fichier CSV ou Excel)
+2. Importer une couche de polygones (fichier KML ou GeoJSON avec polygones)
+3. L'application détecte automatiquement la relation spatiale
+4. Les points situés à l'intérieur des polygones sont mis en surbrillance
+5. Les points mis en surbrillance ont :
+   - Cercle extérieur : 10px de rayon, jaune (#fbbf24) avec bordure (#f59e0b) et effet de lueur
+   - Cercle intérieur : 6px de rayon, couleur originale de la couche
+
+5.2. ALGORITHME POINT-DANS-POLYGONE
+
+Détails techniques :
+L'application utilise l'algorithme ray casting (lancer de rayon) pour déterminer
+si un point se trouve à l'intérieur d'un polygone. Pour chaque point, une ligne
+horizontale infinie est tracée depuis le point vers la droite. Le nombre
+d'intersections avec les bords du polygone est compté. Si le nombre est impair,
+le point est à l'intérieur du polygone.
+
+Avantages de l'algorithme :
+- Efficace même pour des polygones complexes
+- Fonctionne avec des polygones concaves
+- Supporte les multi-polygones
+- Résultats précis et fiables
+
+5.3. DÉTECTION AUTOMATIQUE DES RELATIONS SPATIALES
+
+Fonctionnement :
+L'application surveille automatiquement les couches ajoutées et détecte les
+relations spatiales potentielles. Lorsqu'une couche de points et une couche
+de polygones sont présentes, elle exécute automatiquement une requête spatiale.
+
+Processus :
+1. Détection du type de géométrie de chaque couche (Point, Polygon, etc.)
+2. Identification des couches de points (CSV, Excel, GeoJSON Point)
+3. Identification des couches de polygones (KML, GeoJSON Polygon)
+4. Exécution automatique de la requête spatiale
+5. Mise en surbrillance des points trouvés à l'intérieur des polygones
+
+5.4. MISE À JOUR DYNAMIQUE DES REQUÊTES SPATIALES
+
+Fonctionnement :
+Les requêtes spatiales sont recalculées automatiquement lorsque :
+- Une nouvelle couche est ajoutée
+- Une couche est supprimée
+- La visibilité des couches change
+
+Cela garantit que les points mis en surbrillance sont toujours à jour avec
+l'état actuel des couches sur la carte.
+
+================================================================================
+6. VISUALISATION DES ATTRIBUTS
+================================================================================
+
+6.1. INFORMATIONS SUR LA COUCHE
+
+Fonctionnement :
+L'onglet "Layer Infos" dans le panneau droit affiche des informations détaillées
+et techniques sur la couche sélectionnée. Ces informations sont essentielles
+pour comprendre les caractéristiques des données géospatiales.
+
+Informations affichées :
+- Nom de la couche
+- Nombre de features (entités géographiques)
+- Type de géométrie (Point, LineString, Polygon, MultiPoint, etc.)
+- Système de coordonnées (CRS - Coordinate Reference System)
+- Étendue géographique (bounding box) avec coordonnées min/max
+
+Étapes :
+1. Sélectionner une couche dans le panneau gauche
+2. Dans le panneau droit, cliquer sur l'onglet "Layer Infos"
+3. Les informations détaillées s'affichent
+
+6.2. TABLEAU DES ATTRIBUTS
+
+Fonctionnement :
+L'onglet "Layer Infos" affiche également un tableau complet de tous les attributs
+de tous les features de la couche sélectionnée. Ce tableau permet d'examiner
+en détail les données attributaires associées aux entités géographiques.
+
+Étapes :
+1. Sélectionner une couche
+2. Aller dans l'onglet "Layer Infos" du panneau droit
+3. Faire défiler jusqu'à la section "Attributes"
+4. Le tableau affiche toutes les lignes (features) et colonnes (attributs)
+5. Chaque ligne représente un feature géographique
+6. Chaque colonne représente un attribut (propriété) du feature
+
+Caractéristiques du tableau :
+- Affichage de tous les features de la couche
+- Tous les attributs sont visibles
+- Format tabulaire facile à lire
+- Défilement pour les grandes quantités de données
+
+6.3. RECHERCHE DANS LES ATTRIBUTS
+
+Fonctionnement :
+La fonction de recherche permet de trouver des features dans la couche sélectionnée
+en recherchant dans tous les attributs. Les résultats sont affichés dans un tableau
+et peuvent être survolés pour être mis en surbrillance sur la carte.
+
+Étapes :
+1. Sélectionner une couche dans le panneau gauche
+2. Dans le panneau droit, onglet "Layer Infos"
+3. Utiliser la barre de recherche en haut
+4. Taper un terme de recherche (recherche insensible à la casse)
+5. Les résultats correspondants s'affichent dans un tableau
+6. Survoler un résultat pour le mettre en surbrillance sur la carte (jaune)
+7. Cliquer sur un résultat pour zoomer automatiquement sur cette feature
+
+================================================================================
+7. EXPORTATION DE DONNÉES
+================================================================================
+
+7.1. EXPORTATION EN CSV
+
+Fonctionnement :
+L'application permet d'exporter la couche sélectionnée au format CSV, incluant
+tous les attributs et les coordonnées. Le format CSV est largement compatible
+avec les logiciels de tableur et d'analyse de données.
+
+Étapes :
+1. Sélectionner la couche à exporter
+2. Dans le panneau droit, onglet "Data Actions"
+3. Cliquer sur le bouton "Export to CSV"
+4. Le fichier CSV est téléchargé automatiquement
+5. Le nom du fichier correspond au nom de la couche
+
+Contenu du fichier CSV exporté :
+- Toutes les colonnes d'attributs de la couche
+- Coordonnées X et Y (ou lon et lat selon le type de données)
+- Toutes les propriétés des features
+
+7.2. EXPORTATION EN GEOJSON
+
+Fonctionnement :
+L'application permet d'exporter la couche sélectionnée au format GeoJSON standard,
+préservant toutes les géométries et attributs. Le format GeoJSON est le standard
+de l'industrie pour l'échange de données géospatiales sur le web.
+
+Étapes :
+1. Sélectionner la couche à exporter
+2. Dans le panneau droit, onglet "Data Actions"
+3. Cliquer sur le bouton "Export to GeoJSON"
+4. Le fichier GeoJSON est téléchargé automatiquement
+5. Le nom du fichier correspond au nom de la couche
+
+Contenu du fichier GeoJSON exporté :
+- Structure FeatureCollection standard
+- Toutes les géométries (points, lignes, polygones)
+- Tous les attributs (propriétés) de chaque feature
+- Format conforme aux spécifications GeoJSON
+
+Avantages du format GeoJSON :
+- Standard ouvert et largement supporté
+- Compatible avec la plupart des logiciels SIG
+- Peut être utilisé directement dans des applications web
+- Préserve toutes les informations géométriques et attributaires
+
+================================================================================
+CONCLUSION
+================================================================================
+
+Cette application web SIG offre un ensemble complet d'outils pour la visualisation,
+la gestion et l'analyse de données géospatiales. Elle supporte de multiples formats
+de fichiers standards, offre des outils d'analyse spatiale avancés, et fournit
+une interface utilisateur intuitive.
+
+Les fonctionnalités SIG principales incluent :
+✓ Importation multi-formats (CSV, Excel, GeoJSON, Shapefile, KML)
+✓ Transformation automatique des systèmes de coordonnées
+✓ Gestion avancée des couches avec organisation par catégories
+✓ Contrôle de l'ordre de superposition des couches
+✓ Navigation interactive sur la carte (zoom, pan)
+✓ Analyse spatiale avec requêtes point-dans-polygone automatiques
+✓ Visualisation des attributs et informations des features
+✓ Exportation de données en formats standards (CSV, GeoJSON)
+
+================================================================================
+FIN DU DOCUMENT
+================================================================================
