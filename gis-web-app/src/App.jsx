@@ -536,6 +536,89 @@ function App() {
                                     }
                                 }
                                 
+                                // Extract Style/PolyStyle information for fill and fill-opacity
+                                // Check for Style element first
+                                let styleElement = placemark.getElementsByTagName('Style')[0];
+                                if (!styleElement) {
+                                    // Check for styleUrl reference
+                                    const styleUrlEl = placemark.getElementsByTagName('styleUrl')[0];
+                                    if (styleUrlEl) {
+                                        const styleUrl = styleUrlEl.textContent || styleUrlEl.text || '';
+                                        // Try to find the referenced style (format: #styleId)
+                                        if (styleUrl.startsWith('#')) {
+                                            const styleId = styleUrl.substring(1);
+                                            // Search for Style with matching id in the document
+                                            const allStyles = kml.getElementsByTagName('Style');
+                                            for (let i = 0; i < allStyles.length; i++) {
+                                                if (allStyles[i].getAttribute('id') === styleId) {
+                                                    styleElement = allStyles[i];
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Extract fill color from PolyStyle
+                                if (styleElement) {
+                                    const polyStyle = styleElement.getElementsByTagName('PolyStyle')[0];
+                                    if (polyStyle) {
+                                        const colorEl = polyStyle.getElementsByTagName('color')[0];
+                                        const fillEl = polyStyle.getElementsByTagName('fill')[0];
+                                        const fillOpacityEl = polyStyle.getElementsByTagName('fillOpacity')[0];
+                                        
+                                        // Extract fill color
+                                        if (colorEl) {
+                                            const kmlColor = (colorEl.textContent || colorEl.text || '').trim();
+                                            if (kmlColor) {
+                                                const hexColor = convertKMLColorToHex(kmlColor);
+                                                if (hexColor) {
+                                                    feature.properties.fill = hexColor;
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Extract fill (if explicitly set)
+                                        if (fillEl) {
+                                            const fillValue = (fillEl.textContent || fillEl.text || '').trim();
+                                            if (fillValue !== '') {
+                                                feature.properties.fill = fillValue;
+                                            }
+                                        }
+                                        
+                                        // Extract fill-opacity
+                                        if (fillOpacityEl) {
+                                            const opacityValue = (fillOpacityEl.textContent || fillOpacityEl.text || '').trim();
+                                            if (opacityValue !== '') {
+                                                feature.properties['fill-opacity'] = opacityValue;
+                                            }
+                                        } else if (colorEl) {
+                                            // KML color format includes alpha in first 2 hex digits
+                                            const kmlColor = (colorEl.textContent || colorEl.text || '').trim();
+                                            if (kmlColor && /^[0-9a-fA-F]{8}$/.test(kmlColor)) {
+                                                const alphaHex = kmlColor.substring(0, 2);
+                                                const alpha = parseInt(alphaHex, 16) / 255;
+                                                feature.properties['fill-opacity'] = alpha.toString();
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Also check IconStyle for point features
+                                    const iconStyle = styleElement.getElementsByTagName('IconStyle')[0];
+                                    if (iconStyle) {
+                                        const colorEl = iconStyle.getElementsByTagName('color')[0];
+                                        if (colorEl && !feature.properties.fill) {
+                                            const kmlColor = (colorEl.textContent || colorEl.text || '').trim();
+                                            if (kmlColor) {
+                                                const hexColor = convertKMLColorToHex(kmlColor);
+                                                if (hexColor) {
+                                                    feature.properties.fill = hexColor;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
                                 // Extract name and description
                                 const nameEl = placemark.getElementsByTagName('name')[0];
                                 const descEl = placemark.getElementsByTagName('description')[0];
@@ -672,6 +755,59 @@ function App() {
         return div.innerHTML;
     };
 
+    // Utility function to convert KML color format (AABBGGRR) to hex
+    const convertKMLColorToHex = (kmlColor) => {
+        if (!kmlColor) return null;
+        
+        // Remove any whitespace
+        const color = kmlColor.trim();
+        
+        // If it's already a hex color (starts with #), return as is
+        if (color.startsWith('#')) {
+            return color.length === 7 ? color : color.substring(0, 7); // Return 6-digit hex
+        }
+        
+        // If it's an 8-digit hex (KML format: AABBGGRR), convert to standard hex (RRGGBB)
+        if (/^[0-9a-fA-F]{8}$/.test(color)) {
+            const r = color.substring(6, 8);
+            const g = color.substring(4, 6);
+            const b = color.substring(2, 4);
+            return `#${r}${g}${b}`;
+        }
+        
+        // If it's a 6-digit hex without #, add #
+        if (/^[0-9a-fA-F]{6}$/.test(color)) {
+            return `#${color}`;
+        }
+        
+        // Try to parse RGB/RGBA format
+        const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+        if (rgbMatch) {
+            const r = parseInt(rgbMatch[1]).toString(16).padStart(2, '0');
+            const g = parseInt(rgbMatch[2]).toString(16).padStart(2, '0');
+            const b = parseInt(rgbMatch[3]).toString(16).padStart(2, '0');
+            return `#${r}${g}${b}`;
+        }
+        
+        return null;
+    };
+
+    // Utility function to convert opacity value to 0-1 range
+    const normalizeOpacity = (opacity) => {
+        if (opacity === null || opacity === undefined || opacity === '') return null;
+        
+        const num = parseFloat(opacity);
+        if (isNaN(num)) return null;
+        
+        // If value is > 1, assume it's 0-255 range, convert to 0-1
+        if (num > 1) {
+            return num / 255;
+        }
+        
+        // If value is already 0-1, return as is
+        return Math.max(0, Math.min(1, num));
+    };
+
     // Helper function to create styled popup content
     const createPopupContent = (properties) => {
         if (!properties || Object.keys(properties).length === 0) {
@@ -797,19 +933,71 @@ function App() {
 
         if (type === 'geojson' && map) {
             const geoLayer = L.geoJSON(data, {
-                style: {
-                    color: layerColor,
+                style: (feature) => {
+                    // Check if feature has fill color in metadata
+                    let fillColor = layerColor;
+                    let fillOpacity = 0.3;
+                    
+                    if (feature.properties) {
+                        // Extract fill color from properties
+                        if (feature.properties.fill) {
+                            const convertedColor = convertKMLColorToHex(feature.properties.fill);
+                            if (convertedColor) {
+                                fillColor = convertedColor;
+                            } else {
+                                fillColor = feature.properties.fill;
+                            }
+                        }
+                        
+                        // Extract fill-opacity from properties
+                        if (feature.properties['fill-opacity'] !== undefined && feature.properties['fill-opacity'] !== null && feature.properties['fill-opacity'] !== '') {
+                            const normalizedOpacity = normalizeOpacity(feature.properties['fill-opacity']);
+                            if (normalizedOpacity !== null) {
+                                fillOpacity = normalizedOpacity;
+                            }
+                        }
+                    }
+                    
+                    return {
+                        color: fillColor,
+                        fillColor: fillColor,
                     weight: 2,
-                    fillOpacity: 0.3
+                        fillOpacity: fillOpacity,
+                        opacity: 1
+                    };
                 },
                 pointToLayer: (feature, latlng) => {
+                    // Check if feature has fill color in metadata
+                    let fillColor = layerColor;
+                    let fillOpacity = 0.6;
+                    
+                    if (feature.properties) {
+                        // Extract fill color from properties
+                        if (feature.properties.fill) {
+                            const convertedColor = convertKMLColorToHex(feature.properties.fill);
+                            if (convertedColor) {
+                                fillColor = convertedColor;
+                            } else {
+                                fillColor = feature.properties.fill;
+                            }
+                        }
+                        
+                        // Extract fill-opacity from properties
+                        if (feature.properties['fill-opacity'] !== undefined && feature.properties['fill-opacity'] !== null && feature.properties['fill-opacity'] !== '') {
+                            const normalizedOpacity = normalizeOpacity(feature.properties['fill-opacity']);
+                            if (normalizedOpacity !== null) {
+                                fillOpacity = normalizedOpacity;
+                            }
+                        }
+                    }
+                    
                     return L.circleMarker(latlng, {
                         radius: 6,
-                        fillColor: layerColor,
-                        color: layerColor,
+                        fillColor: fillColor,
+                        color: fillColor,
                         weight: 2,
                         opacity: 1,
-                        fillOpacity: 0.6
+                        fillOpacity: fillOpacity
                     });
                 },
                 onEachFeature: (feature, layer) => {

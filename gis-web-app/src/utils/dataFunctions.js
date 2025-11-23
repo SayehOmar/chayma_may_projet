@@ -290,6 +290,18 @@ export const getLayerSummary = (layer) => {
 };
 
 /**
+ * Normalize a string value for consistent categorization
+ * @param {*} value - Value to normalize
+ * @returns {String} Normalized string
+ */
+const normalizeCategoryValue = (value) => {
+    if (value === null || value === undefined || value === '') {
+        return 'Unknown';
+    }
+    return value.toString().trim().toLowerCase();
+};
+
+/**
  * Count features by category
  * @param {Object} layer - Layer object
  * @param {String} categoryProperty - Property name to use for categorization
@@ -302,7 +314,7 @@ export const countByCategory = (layer, categoryProperty) => {
 
     const counts = {};
     layer.data.features.forEach(feature => {
-        const category = feature.properties[categoryProperty]?.toString() || 'Unknown';
+        const category = normalizeCategoryValue(feature.properties[categoryProperty]);
         counts[category] = (counts[category] || 0) + 1;
     });
 

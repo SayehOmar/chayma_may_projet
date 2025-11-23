@@ -7,8 +7,11 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'
 
 const StatisticsWindow = ({ layer, onClose }) => {
     const [position, setPosition] = useState({ x: 100, y: 100 });
+    const [size, setSize] = useState({ width: 900, height: 600 });
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    const [isResizing, setIsResizing] = useState({ width: false, height: false, corner: false });
+    const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [isMinimized, setIsMinimized] = useState(false);
     const [selectedAttributes, setSelectedAttributes] = useState({ material: true, sites: false });
     const [customAttribute, setCustomAttribute] = useState('');
@@ -16,6 +19,22 @@ const StatisticsWindow = ({ layer, onClose }) => {
     const [yAxisAttribute, setYAxisAttribute] = useState('');
     const windowRef = useRef(null);
     const animationFrameRef = useRef(null);
+
+    // Normalize value for consistent categorization
+    const normalizeValue = useCallback((value) => {
+        if (value === null || value === undefined || value === '') {
+            return 'Unknown';
+        }
+        return value.toString().trim().toLowerCase();
+    }, []);
+
+    // Capitalize first letter of each word for display
+    const capitalizeForDisplay = useCallback((str) => {
+        if (!str || str === 'Unknown') return str;
+        return str.split(' ').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        ).join(' ');
+    }, []);
 
     // Memoize expensive calculations
     const stats = useMemo(() => layer ? getLayerStatistics(layer) : null, [layer]);
@@ -47,17 +66,20 @@ const StatisticsWindow = ({ layer, onClose }) => {
 
     const materialData = useMemo(() => 
         Object.entries(materialCounts)
-            .map(([name, value]) => ({ name, value }))
+            .map(([name, value]) => ({ name: capitalizeForDisplay(name), value, originalName: name }))
             .sort((a, b) => b.value - a.value),
-        [materialCounts]
+        [materialCounts, capitalizeForDisplay]
     );
 
     const customAttributeData = useMemo(() => 
         Object.entries(customAttributeCounts)
-            .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 20) + '...' : name, value }))
+            .map(([name, value]) => ({ 
+                name: (name.length > 20 ? name.substring(0, 20) + '...' : capitalizeForDisplay(name)), 
+                value 
+            }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 15),
-        [customAttributeCounts]
+        [customAttributeCounts, capitalizeForDisplay]
     );
 
     // Correlation data: X axis vs Y axis
@@ -68,8 +90,8 @@ const StatisticsWindow = ({ layer, onClose }) => {
         const grouped = {};
         
         layer.data.features.forEach(feature => {
-            const xValue = feature.properties[xAxisAttribute]?.toString() || 'Unknown';
-            const yValue = feature.properties[yAxisAttribute]?.toString() || 'Unknown';
+            const xValue = normalizeValue(feature.properties[xAxisAttribute]);
+            const yValue = normalizeValue(feature.properties[yAxisAttribute]);
             
             if (!grouped[xValue]) {
                 grouped[xValue] = {};
@@ -91,17 +113,18 @@ const StatisticsWindow = ({ layer, onClose }) => {
         // Create data array for stacked bar chart
         // Use a fixed key for X axis data
         return xValues.map(xVal => {
-            const dataPoint = { name: xVal.length > 20 ? xVal.substring(0, 20) + '...' : xVal };
+            const displayXVal = xVal.length > 20 ? xVal.substring(0, 20) + '...' : capitalizeForDisplay(xVal);
+            const dataPoint = { name: displayXVal };
             yValues.forEach(yVal => {
-                // Clean Y value name for use as dataKey
+                // Clean Y value name for use as dataKey (keep normalized for grouping, but display capitalized)
                 const cleanYVal = yVal.length > 15 ? yVal.substring(0, 15) + '...' : yVal;
                 dataPoint[cleanYVal] = grouped[xVal][yVal] || 0;
             });
             return dataPoint;
         }).slice(0, 20); // Limit to top 20 X values
-    }, [xAxisAttribute, yAxisAttribute, layer]);
+    }, [xAxisAttribute, yAxisAttribute, layer, normalizeValue, capitalizeForDisplay]);
 
-    // Get unique Y values for legend
+    // Get unique Y values for legend (with display names)
     const correlationYValues = useMemo(() => {
         if (!correlationData.length || !yAxisAttribute) return [];
         const yValues = new Set();
@@ -112,20 +135,43 @@ const StatisticsWindow = ({ layer, onClose }) => {
                 }
             });
         });
-        return Array.from(yValues);
-    }, [correlationData]);
+        return Array.from(yValues).map(val => ({
+            key: val,
+            displayName: capitalizeForDisplay(val)
+        }));
+    }, [correlationData, capitalizeForDisplay]);
 
     const handleMouseDown = useCallback((e) => {
         if (e.target.closest('.window-controls')) return;
         if (e.target.closest('button')) return;
         if (e.target.closest('select')) return;
         if (e.target.closest('input')) return;
+        if (e.target.closest('.resize-handle')) return;
         setIsDragging(true);
         const rect = windowRef.current.getBoundingClientRect();
         setDragOffset({
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
         });
+    }, []);
+
+    const handleResizeStart = useCallback((e, type) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = windowRef.current.getBoundingClientRect();
+        setResizeStart({
+            x: e.clientX,
+            y: e.clientY,
+            width: rect.width,
+            height: rect.height
+        });
+        if (type === 'corner') {
+            setIsResizing({ width: true, height: true, corner: true });
+        } else if (type === 'width') {
+            setIsResizing({ width: true, height: false, corner: false });
+        } else if (type === 'height') {
+            setIsResizing({ width: false, height: true, corner: false });
+        }
     }, []);
 
     const handleMinimize = useCallback(() => {
@@ -158,7 +204,7 @@ const StatisticsWindow = ({ layer, onClose }) => {
     }, []);
 
     useEffect(() => {
-        if (!isDragging) return;
+        if (!isDragging && !isResizing.width && !isResizing.height) return;
 
         const handleMouseMove = (e) => {
             if (animationFrameRef.current) {
@@ -167,22 +213,53 @@ const StatisticsWindow = ({ layer, onClose }) => {
             
             animationFrameRef.current = requestAnimationFrame(() => {
                 if (windowRef.current) {
-                    const newX = e.clientX - dragOffset.x;
-                    const newY = e.clientY - dragOffset.y;
-                    const rect = windowRef.current.getBoundingClientRect();
-                    const maxX = window.innerWidth - rect.width;
-                    const maxY = window.innerHeight - rect.height;
-                    
-                    setPosition({
-                        x: Math.max(0, Math.min(newX, maxX)),
-                        y: Math.max(0, Math.min(newY, maxY))
-                    });
+                    if (isDragging) {
+                        const newX = e.clientX - dragOffset.x;
+                        const newY = e.clientY - dragOffset.y;
+                        const rect = windowRef.current.getBoundingClientRect();
+                        const maxX = window.innerWidth - rect.width;
+                        const maxY = window.innerHeight - rect.height;
+                        
+                        setPosition({
+                            x: Math.max(0, Math.min(newX, maxX)),
+                            y: Math.max(0, Math.min(newY, maxY))
+                        });
+                    } else if (isResizing.width || isResizing.height) {
+                        const deltaX = e.clientX - resizeStart.x;
+                        const deltaY = e.clientY - resizeStart.y;
+                        
+                        let newWidth = resizeStart.width;
+                        let newHeight = resizeStart.height;
+                        
+                        if (isResizing.width || isResizing.corner) {
+                            newWidth = Math.max(400, Math.min(1600, resizeStart.width + deltaX));
+                        }
+                        
+                        if (isResizing.height || isResizing.corner) {
+                            newHeight = Math.max(300, Math.min(window.innerHeight - position.y - 50, resizeStart.height + deltaY));
+                        }
+                        
+                        setSize({ width: newWidth, height: newHeight });
+                        
+                        // Adjust position if resizing from right edge to keep left edge fixed
+                        if (isResizing.width || isResizing.corner) {
+                            const rect = windowRef.current.getBoundingClientRect();
+                            const maxX = window.innerWidth - newWidth;
+                            if (position.x > maxX) {
+                                setPosition(prev => ({
+                                    ...prev,
+                                    x: Math.max(0, maxX)
+                                }));
+                            }
+                        }
+                    }
                 }
             });
         };
 
         const handleMouseUp = () => {
             setIsDragging(false);
+            setIsResizing({ width: false, height: false, corner: false });
             if (animationFrameRef.current) {
                 cancelAnimationFrame(animationFrameRef.current);
             }
@@ -190,7 +267,17 @@ const StatisticsWindow = ({ layer, onClose }) => {
 
         document.addEventListener('mousemove', handleMouseMove, { passive: true });
         document.addEventListener('mouseup', handleMouseUp);
-        document.body.style.cursor = 'move';
+        
+        if (isDragging) {
+            document.body.style.cursor = 'move';
+        } else if (isResizing.corner) {
+            document.body.style.cursor = 'nwse-resize';
+        } else if (isResizing.width) {
+            document.body.style.cursor = 'ew-resize';
+        } else if (isResizing.height) {
+            document.body.style.cursor = 'ns-resize';
+        }
+        
         document.body.style.userSelect = 'none';
 
         return () => {
@@ -202,7 +289,7 @@ const StatisticsWindow = ({ layer, onClose }) => {
                 cancelAnimationFrame(animationFrameRef.current);
             }
         };
-    }, [isDragging, dragOffset]);
+    }, [isDragging, dragOffset, isResizing, resizeStart, position]);
 
     if (!layer || !stats) {
         return null;
@@ -210,11 +297,13 @@ const StatisticsWindow = ({ layer, onClose }) => {
 
     return (
         <div 
-            className={`statistics-window ${isDragging ? 'dragging' : ''} ${isMinimized ? 'minimized' : ''}`}
+            className={`statistics-window ${isDragging ? 'dragging' : ''} ${isResizing.width || isResizing.height ? 'resizing' : ''} ${isMinimized ? 'minimized' : ''}`}
             ref={windowRef}
             style={{
                 left: `${position.x}px`,
-                top: `${position.y}px`
+                top: `${position.y}px`,
+                width: `${size.width}px`,
+                height: `${isMinimized ? 'auto' : `${size.height}px`}`
             }}
         >
             <div className="window-header" onMouseDown={handleMouseDown}>
@@ -394,14 +483,20 @@ const StatisticsWindow = ({ layer, onClose }) => {
                                         />
                                         <YAxis label={{ value: 'Count', angle: -90, position: 'insideLeft' }} />
                                         <Tooltip animationDuration={200} />
-                                        <Legend />
+                                        <Legend 
+                                            formatter={(value) => {
+                                                const yVal = correlationYValues.find(v => v.key === value);
+                                                return yVal ? yVal.displayName : capitalizeForDisplay(value);
+                                            }}
+                                        />
                                         {correlationYValues.map((yVal, index) => (
                                             <Bar 
-                                                key={yVal} 
-                                                dataKey={yVal} 
+                                                key={yVal.key} 
+                                                dataKey={yVal.key} 
                                                 stackId="a"
                                                 fill={COLORS[index % COLORS.length]}
                                                 animationDuration={300}
+                                                name={yVal.displayName}
                                             />
                                         ))}
                                     </BarChart>
@@ -469,6 +564,23 @@ const StatisticsWindow = ({ layer, onClose }) => {
                         )}
                     </div>
                 </div>
+            )}
+            {/* Resize handles */}
+            {!isMinimized && (
+                <>
+                    <div 
+                        className="resize-handle resize-handle-right"
+                        onMouseDown={(e) => handleResizeStart(e, 'width')}
+                    ></div>
+                    <div 
+                        className="resize-handle resize-handle-bottom"
+                        onMouseDown={(e) => handleResizeStart(e, 'height')}
+                    ></div>
+                    <div 
+                        className="resize-handle resize-handle-corner"
+                        onMouseDown={(e) => handleResizeStart(e, 'corner')}
+                    ></div>
+                </>
             )}
         </div>
     );
