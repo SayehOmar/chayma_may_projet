@@ -2,7 +2,7 @@
 import React from 'react';
 import LayerItem from './LayerItem';
 
-const Category = ({ name, data, layers, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory, isFirst, isLast }) => {
+const Category = ({ name, data, layers, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory, isFirst, isLast, setColorByAttribute, getLayerAttributes }) => {
     const categoryColor = layers.length > 0 ? layers[0].color : '#808080'; // Default color if no layers
 
     return (
@@ -41,6 +41,8 @@ const Category = ({ name, data, layers, toggleCategory, toggleLayerVisibility, d
                             deleteLayer={deleteLayer}
                             selectLayer={selectLayer}
                             selectedLayer={selectedLayer}
+                            setColorByAttribute={setColorByAttribute}
+                            getLayerAttributes={getLayerAttributes}
                         />
                     ))}
             </div>

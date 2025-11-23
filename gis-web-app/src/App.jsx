@@ -1136,7 +1136,8 @@ function App() {
             data,
             visible: true,
             color: layerColor,
-            category
+            category,
+            colorByAttribute: null // Attribute name to color by, or null for single color
         };
         
         // Update selected color to match the new layer's color
@@ -1165,9 +1166,12 @@ function App() {
         });
 
         if (type === 'geojson' && map) {
+            // Store layer ID for later style updates
+            const layerId = id;
+            
             const geoLayer = L.geoJSON(data, {
                 style: (feature) => {
-                    // Check if feature has fill color in metadata
+                    // Use default color initially - will be updated by updateLayerStyles if colorByAttribute is set
                     let fillColor = layerColor;
                     let fillOpacity = 0.3;
                     
@@ -1194,7 +1198,7 @@ function App() {
                     return {
                         color: fillColor,
                         fillColor: fillColor,
-                    weight: 2,
+                        weight: 2,
                         fillOpacity: fillOpacity,
                         opacity: 1
                     };
@@ -1251,6 +1255,9 @@ function App() {
             
             layerGroupsRef.current[id] = geoLayer;
             
+            // Store reference to update style when colorByAttribute changes
+            geoLayer._layerId = id;
+            
             // Update z-index after adding layer to ensure correct rendering order
             setTimeout(() => {
                 setLayers(currentLayers => {
@@ -1258,6 +1265,40 @@ function App() {
                     return currentLayers;
                 });
             }, 100);
+        }
+    };
+
+    // Function to update layer styles when colorByAttribute changes
+    const updateLayerStyles = (layer) => {
+        if (!map || !layerGroupsRef.current[layer.id]) return;
+        
+        const leafletLayer = layerGroupsRef.current[layer.id];
+        const colorMap = layer.colorByAttribute ? generateAttributeColorMap(layer, layer.colorByAttribute) : null;
+        
+        if (leafletLayer.eachLayer) {
+            leafletLayer.eachLayer((featureLayer) => {
+                if (featureLayer.feature && featureLayer.feature.properties) {
+                    let fillColor = layer.color;
+                    
+                    if (layer.colorByAttribute && colorMap) {
+                        const attrValue = featureLayer.feature.properties[layer.colorByAttribute];
+                        if (attrValue !== undefined && attrValue !== null) {
+                            const normalized = attrValue.toString().trim().toLowerCase();
+                            fillColor = colorMap[normalized] || layer.color;
+                        }
+                    }
+                    
+                    if (featureLayer.setStyle) {
+                        featureLayer.setStyle({
+                            color: fillColor,
+                            fillColor: fillColor,
+                            weight: 2,
+                            fillOpacity: 0.3,
+                            opacity: 1
+                        });
+                    }
+                }
+            });
         }
     };
 
@@ -1512,6 +1553,84 @@ function App() {
         }
     };
 
+    // Get available attributes from a layer (excluding coordinate fields)
+    const getLayerAttributes = (layer) => {
+        if (!layer || !layer.data || !layer.data.features || layer.data.features.length === 0) {
+            return [];
+        }
+        
+        const firstFeature = layer.data.features[0];
+        if (!firstFeature.properties) {
+            return [];
+        }
+        
+        return Object.keys(firstFeature.properties).filter(attr => {
+            const lowerAttr = attr.toLowerCase();
+            return lowerAttr !== 'x' && 
+                   lowerAttr !== 'y' && 
+                   lowerAttr !== 'lon' && 
+                   lowerAttr !== 'lat' &&
+                   lowerAttr !== 'fill' &&
+                   lowerAttr !== 'fill-opacity';
+        });
+    };
+
+    // Generate color mapping for attribute values
+    const generateAttributeColorMap = (layer, attributeName) => {
+        if (!layer || !layer.data || !layer.data.features || !attributeName) {
+            return {};
+        }
+        
+        const uniqueValues = new Set();
+        layer.data.features.forEach(feature => {
+            if (feature.properties && feature.properties[attributeName] !== undefined) {
+                const value = feature.properties[attributeName];
+                // Normalize value (trim and lowercase for consistent grouping)
+                const normalized = value !== null && value !== undefined 
+                    ? value.toString().trim().toLowerCase() 
+                    : 'Unknown';
+                uniqueValues.add(normalized);
+            }
+        });
+        
+        const values = Array.from(uniqueValues).sort();
+        const colorMap = {};
+        const predefinedColors = [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
+            '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
+            '#14b8a6', '#22c55e', '#eab308', '#a855f7', '#d97706',
+            '#dc2626', '#0891b2', '#1f2937', '#6b7280', '#f43f5e',
+            '#0ea5e9', '#a3e635', '#fb923c', '#c084fc', '#60a5fa'
+        ];
+        
+        values.forEach((value, index) => {
+            colorMap[value] = predefinedColors[index % predefinedColors.length];
+        });
+        
+        return colorMap;
+    };
+
+    // Set color-by-attribute for a layer
+    const setColorByAttribute = (layerId, attributeName) => {
+        setLayers(prevLayers => {
+            const updatedLayers = prevLayers.map(layer => {
+                if (layer.id === layerId) {
+                    const updatedLayer = { ...layer, colorByAttribute: attributeName || null };
+                    
+                    // Update layer styles
+                    setTimeout(() => {
+                        updateLayerStyles(updatedLayer);
+                    }, 50);
+                    
+                    return updatedLayer;
+                }
+                return layer;
+            });
+            
+            return updatedLayers;
+        });
+    };
+
     const deleteLayer = (id) => {
         const leafletLayer = layerGroupsRef.current[id];
         if (map && leafletLayer) {
@@ -1647,6 +1766,8 @@ function App() {
                 selectLayer={selectLayer}
                 selectedLayer={selectedLayer}
                 moveCategory={moveCategory}
+                setColorByAttribute={setColorByAttribute}
+                getLayerAttributes={getLayerAttributes}
             />
                 <div 
                     className="resize-handle resize-handle-right"

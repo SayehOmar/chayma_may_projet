@@ -2,7 +2,7 @@
 import React from 'react';
 import Category from './Category';
 
-const LayersList = ({ layers, categories, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory }) => {
+const LayersList = ({ layers, categories, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory, setColorByAttribute, getLayerAttributes }) => {
     const categoryEntries = Object.entries(categories);
     
     return (
@@ -21,6 +21,8 @@ const LayersList = ({ layers, categories, toggleCategory, toggleLayerVisibility,
                     moveCategory={moveCategory}
                     isFirst={index === 0}
                     isLast={index === categoryEntries.length - 1}
+                    setColorByAttribute={setColorByAttribute}
+                    getLayerAttributes={getLayerAttributes}
                 />
             ))}
         </div>
