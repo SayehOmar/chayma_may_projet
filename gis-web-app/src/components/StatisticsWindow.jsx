@@ -12,14 +12,34 @@ const CustomCorrelationTooltip = ({ active, payload, label }) => {
         return (b.value || 0) - (a.value || 0);
     });
     
-    // Calculate max width based on longest text
-    const allTexts = [
-        label || '',
-        ...sortedPayload.map(item => `${item.name || ''}: ${item.value || 0}`)
-    ];
-    const maxTextLength = Math.max(...allTexts.map(text => text.length));
-    // Calculate width: approximately 8px per character + padding
-    const tooltipWidth = Math.max(200, Math.min(500, maxTextLength * 8 + 60));
+    // Measure text width accurately using canvas
+    const measureTextWidth = (text, fontSize, fontWeight = 'normal') => {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        // Use the same font as the tooltip
+        context.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+        return context.measureText(text).width;
+    };
+    
+    // Measure label width (font size 14px, font-weight 600)
+    const labelText = label || 'Unknown';
+    const labelWidth = measureTextWidth(labelText, 14, '600');
+    
+    // Measure each item's full width (name + value + spacing)
+    let maxItemWidth = 0;
+    sortedPayload.forEach(item => {
+        const nameText = `${item.name || 'Unknown'}:`;
+        const valueText = String(item.value || 0);
+        const nameWidth = measureTextWidth(nameText, 13, '500');
+        const valueWidth = measureTextWidth(valueText, 13, '600');
+        // Account for space-between layout (approximately 20-30px gap)
+        const itemWidth = nameWidth + valueWidth + 25;
+        maxItemWidth = Math.max(maxItemWidth, itemWidth);
+    });
+    
+    // Calculate total width: max of label or items + padding (12px left + 12px right = 24px)
+    const contentWidth = Math.max(labelWidth, maxItemWidth);
+    const tooltipWidth = Math.max(200, contentWidth + 24);
     
     return (
         <div 
@@ -29,7 +49,7 @@ const CustomCorrelationTooltip = ({ active, payload, label }) => {
                 minWidth: '200px'
             }}
         >
-            <p className="tooltip-label">{label || 'Unknown'}</p>
+            <p className="tooltip-label">{labelText}</p>
             {sortedPayload.map((entry, index) => (
                 <p key={index} className="tooltip-item" style={{ color: entry.color }}>
                     <span className="tooltip-name">{entry.name || 'Unknown'}:</span>
