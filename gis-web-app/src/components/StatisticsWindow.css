@@ -51,6 +51,15 @@
     display: none;
 }
 
+.statistics-window.maximized {
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    min-width: 100vw !important;
+    min-height: 100vh !important;
+    border-radius: 0;
+    border: none;
+}
+
 .window-header {
     background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
     padding: 8px 12px;
@@ -102,6 +111,11 @@
 
 .window-control-btn.minimize:hover {
     background: #f59e0b;
+    color: white;
+}
+
+.window-control-btn.maximize:hover {
+    background: #10b981;
     color: white;
 }
 

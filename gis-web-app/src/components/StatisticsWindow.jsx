@@ -13,6 +13,9 @@ const StatisticsWindow = ({ layer, onClose }) => {
     const [isResizing, setIsResizing] = useState({ width: false, height: false, corner: false });
     const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [isMinimized, setIsMinimized] = useState(false);
+    const [isMaximized, setIsMaximized] = useState(false);
+    const [previousSize, setPreviousSize] = useState({ width: 900, height: 600 });
+    const [previousPosition, setPreviousPosition] = useState({ x: 100, y: 100 });
     const [selectedAttributes, setSelectedAttributes] = useState({ material: true, sites: false });
     const [customAttribute, setCustomAttribute] = useState('');
     const [xAxisAttribute, setXAxisAttribute] = useState('');
@@ -147,17 +150,21 @@ const StatisticsWindow = ({ layer, onClose }) => {
         if (e.target.closest('select')) return;
         if (e.target.closest('input')) return;
         if (e.target.closest('.resize-handle')) return;
+        // Don't allow dragging when maximized
+        if (isMaximized) return;
         setIsDragging(true);
         const rect = windowRef.current.getBoundingClientRect();
         setDragOffset({
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
         });
-    }, []);
+    }, [isMaximized]);
 
     const handleResizeStart = useCallback((e, type) => {
         e.preventDefault();
         e.stopPropagation();
+        // Don't allow resizing when maximized
+        if (isMaximized) return;
         const rect = windowRef.current.getBoundingClientRect();
         setResizeStart({
             x: e.clientX,
@@ -172,11 +179,38 @@ const StatisticsWindow = ({ layer, onClose }) => {
         } else if (type === 'height') {
             setIsResizing({ width: false, height: true, corner: false });
         }
-    }, []);
+    }, [isMaximized]);
 
     const handleMinimize = useCallback(() => {
         setIsMinimized(prev => !prev);
     }, []);
+
+    const handleMaximize = useCallback(() => {
+        if (isMaximized) {
+            // Restore to previous size and position
+            setSize(previousSize);
+            setPosition(previousPosition);
+            setIsMaximized(false);
+        } else {
+            // Save current size and position
+            setPreviousSize(size);
+            setPreviousPosition(position);
+            
+            // Maximize to full page dimensions (no margins)
+            setSize({
+                width: window.innerWidth,
+                height: window.innerHeight
+            });
+            
+            // Position at top-left corner
+            setPosition({
+                x: 0,
+                y: 0
+            });
+            
+            setIsMaximized(true);
+        }
+    }, [isMaximized, size, position, previousSize, previousPosition]);
 
     const handleAttributeChange = useCallback((attr, checked) => {
         setSelectedAttributes(prev => ({ ...prev, [attr]: checked }));
@@ -297,7 +331,7 @@ const StatisticsWindow = ({ layer, onClose }) => {
 
     return (
         <div 
-            className={`statistics-window ${isDragging ? 'dragging' : ''} ${isResizing.width || isResizing.height ? 'resizing' : ''} ${isMinimized ? 'minimized' : ''}`}
+            className={`statistics-window ${isDragging ? 'dragging' : ''} ${isResizing.width || isResizing.height ? 'resizing' : ''} ${isMinimized ? 'minimized' : ''} ${isMaximized ? 'maximized' : ''}`}
             ref={windowRef}
             style={{
                 left: `${position.x}px`,
@@ -314,6 +348,9 @@ const StatisticsWindow = ({ layer, onClose }) => {
                 <div className="window-controls">
                     <button className="window-control-btn minimize" onClick={handleMinimize} title="Minimize">
                         <i className="fas fa-minus"></i>
+                    </button>
+                    <button className="window-control-btn maximize" onClick={handleMaximize} title={isMaximized ? "Restore" : "Maximize to Full Screen"}>
+                        <i className={isMaximized ? "fas fa-compress" : "fas fa-expand"}></i>
                     </button>
                     <button className="window-control-btn close" onClick={onClose} title="Close">
                         <i className="fas fa-times"></i>
