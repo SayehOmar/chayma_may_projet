@@ -201,6 +201,30 @@ const StatisticsWindow = ({ layer, onClose }) => {
         }));
     }, [correlationData, capitalizeForDisplay]);
 
+    // Pie chart data for correlation (total count per Y value)
+    const correlationPieData = useMemo(() => {
+        if (!correlationData.length || !correlationYValues.length) return [];
+        
+        // Calculate total count for each Y value across all X values
+        const totals = {};
+        correlationYValues.forEach(yVal => {
+            totals[yVal.key] = 0;
+        });
+        
+        correlationData.forEach(item => {
+            correlationYValues.forEach(yVal => {
+                totals[yVal.key] += item[yVal.key] || 0;
+            });
+        });
+        
+        // Convert to pie chart format
+        return correlationYValues.map((yVal, index) => ({
+            name: yVal.displayName,
+            value: totals[yVal.key],
+            color: COLORS[index % COLORS.length]
+        })).filter(item => item.value > 0).sort((a, b) => b.value - a.value);
+    }, [correlationData, correlationYValues]);
+
     const handleMouseDown = useCallback((e) => {
         if (e.target.closest('.window-controls')) return;
         if (e.target.closest('button')) return;
@@ -600,6 +624,37 @@ const StatisticsWindow = ({ layer, onClose }) => {
                                         ))}
                                     </BarChart>
                                 </ResponsiveContainer>
+                                
+                                {/* Pie Chart for Correlation Distribution */}
+                                {correlationPieData.length > 0 && (
+                                    <div style={{ marginTop: '32px' }}>
+                                        <h4 className="chart-title" style={{ fontSize: '14px', marginBottom: '12px' }}>
+                                            <i className="fas fa-pie-chart" style={{ marginRight: '8px' }}></i>
+                                            Distribution of {yAxisAttribute}
+                                        </h4>
+                                        <ResponsiveContainer width="100%" height={300}>
+                                            <PieChart>
+                                                <Pie
+                                                    data={correlationPieData}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    labelLine={false}
+                                                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                                    outerRadius={100}
+                                                    fill="#8884d8"
+                                                    dataKey="value"
+                                                    animationDuration={300}
+                                                >
+                                                    {correlationPieData.map((entry, index) => (
+                                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip animationDuration={200} />
+                                                <Legend />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )}
                             </div>
                         )}
 
