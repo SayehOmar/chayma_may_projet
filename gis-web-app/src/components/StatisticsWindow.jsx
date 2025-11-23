@@ -3,6 +3,43 @@ import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Toolti
 import { getLayerStatistics, countByCategory } from '../utils/dataFunctions';
 import './StatisticsWindow.css';
 
+// Custom Tooltip component for correlation chart
+const CustomCorrelationTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+    
+    // Sort payload to show hovered bar first (highest value first)
+    const sortedPayload = [...payload].sort((a, b) => {
+        return (b.value || 0) - (a.value || 0);
+    });
+    
+    // Calculate max width based on longest text
+    const allTexts = [
+        label || '',
+        ...sortedPayload.map(item => `${item.name || ''}: ${item.value || 0}`)
+    ];
+    const maxTextLength = Math.max(...allTexts.map(text => text.length));
+    // Calculate width: approximately 8px per character + padding
+    const tooltipWidth = Math.max(200, Math.min(500, maxTextLength * 8 + 60));
+    
+    return (
+        <div 
+            className="custom-correlation-tooltip"
+            style={{ 
+                width: `${tooltipWidth}px`,
+                minWidth: '200px'
+            }}
+        >
+            <p className="tooltip-label">{label || 'Unknown'}</p>
+            {sortedPayload.map((entry, index) => (
+                <p key={index} className="tooltip-item" style={{ color: entry.color }}>
+                    <span className="tooltip-name">{entry.name || 'Unknown'}:</span>
+                    <span className="tooltip-value">{entry.value || 0}</span>
+                </p>
+            ))}
+        </div>
+    );
+};
+
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
 
 const StatisticsWindow = ({ layer, onClose }) => {
@@ -432,17 +469,13 @@ const StatisticsWindow = ({ layer, onClose }) => {
                     </div>
 
                     <div className="stats-summary">
-                        <div className="stat-card">
-                            <div className="stat-value">{stats.totalFeatures}</div>
-                            <div className="stat-label">Total Features</div>
+                        <div className="stat-card stat-card-small">
+                            <div className="stat-value stat-value-small">{stats.totalFeatures}</div>
+                            <div className="stat-label stat-label-small">Total Features</div>
                         </div>
-                        <div className="stat-card">
-                            <div className="stat-value">{Object.keys(materialCounts).length}</div>
-                            <div className="stat-label">Material Types</div>
-                        </div>
-                        <div className="stat-card">
-                            <div className="stat-value">{availableAttributes.length}</div>
-                            <div className="stat-label">Attributes</div>
+                        <div className="stat-card stat-card-small">
+                            <div className="stat-value stat-value-small">{availableAttributes.length}</div>
+                            <div className="stat-label stat-label-small">Attributes</div>
                         </div>
                     </div>
 
@@ -505,6 +538,18 @@ const StatisticsWindow = ({ layer, onClose }) => {
                                     <i className="fas fa-project-diagram" style={{ marginRight: '8px' }}></i>
                                     Correlation: {xAxisAttribute} vs {yAxisAttribute}
                                 </h3>
+                                {/* Custom Legend on top */}
+                                <div className="correlation-legend-top">
+                                    {correlationYValues.map((yVal, index) => (
+                                        <div key={yVal.key} className="legend-item-top">
+                                            <span 
+                                                className="legend-color-indicator" 
+                                                style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                            ></span>
+                                            <span className="legend-label">{yVal.displayName}</span>
+                                        </div>
+                                    ))}
+                                </div>
                                 <ResponsiveContainer width="100%" height={400}>
                                     <BarChart 
                                         data={correlationData} 
@@ -519,12 +564,9 @@ const StatisticsWindow = ({ layer, onClose }) => {
                                             label={{ value: xAxisAttribute, position: 'insideBottom', offset: -5 }}
                                         />
                                         <YAxis label={{ value: 'Count', angle: -90, position: 'insideLeft' }} />
-                                        <Tooltip animationDuration={200} />
-                                        <Legend 
-                                            formatter={(value) => {
-                                                const yVal = correlationYValues.find(v => v.key === value);
-                                                return yVal ? yVal.displayName : capitalizeForDisplay(value);
-                                            }}
+                                        <Tooltip 
+                                            content={<CustomCorrelationTooltip />}
+                                            animationDuration={200}
                                         />
                                         {correlationYValues.map((yVal, index) => (
                                             <Bar 
