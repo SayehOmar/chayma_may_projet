@@ -313,6 +313,227 @@ function App() {
         }
     };
 
+    // Manual Windows-1252 to UTF-8 conversion for browsers that don't support it
+    // Complete Windows-1252 character mapping using Unicode escape sequences
+    const convertWindows1252ToUTF8 = (bytes) => {
+        // Windows-1252 to Unicode mapping (complete character set)
+        const windows1252Map = {
+            // Lowercase accented characters
+            0xE0: '\u00E0', // à
+            0xE1: '\u00E1', // á
+            0xE2: '\u00E2', // â
+            0xE3: '\u00E3', // ã
+            0xE4: '\u00E4', // ä
+            0xE5: '\u00E5', // å
+            0xE6: '\u00E6', // æ
+            0xE7: '\u00E7', // ç
+            0xE8: '\u00E8', // è
+            0xE9: '\u00E9', // é
+            0xEA: '\u00EA', // ê
+            0xEB: '\u00EB', // ë
+            0xEC: '\u00EC', // ì
+            0xED: '\u00ED', // í
+            0xEE: '\u00EE', // î
+            0xEF: '\u00EF', // ï
+            0xF0: '\u00F0', // ð
+            0xF1: '\u00F1', // ñ
+            0xF2: '\u00F2', // ò
+            0xF3: '\u00F3', // ó
+            0xF4: '\u00F4', // ô
+            0xF5: '\u00F5', // õ
+            0xF6: '\u00F6', // ö
+            0xF8: '\u00F8', // ø
+            0xF9: '\u00F9', // ù
+            0xFA: '\u00FA', // ú
+            0xFB: '\u00FB', // û
+            0xFC: '\u00FC', // ü
+            0xFD: '\u00FD', // ý
+            0xFE: '\u00FE', // þ
+            0xFF: '\u00FF', // ÿ
+            
+            // Uppercase accented characters
+            0xC0: '\u00C0', // À
+            0xC1: '\u00C1', // Á
+            0xC2: '\u00C2', // Â
+            0xC3: '\u00C3', // Ã
+            0xC4: '\u00C4', // Ä
+            0xC5: '\u00C5', // Å
+            0xC6: '\u00C6', // Æ
+            0xC7: '\u00C7', // Ç
+            0xC8: '\u00C8', // È
+            0xC9: '\u00C9', // É
+            0xCA: '\u00CA', // Ê
+            0xCB: '\u00CB', // Ë
+            0xCC: '\u00CC', // Ì
+            0xCD: '\u00CD', // Í
+            0xCE: '\u00CE', // Î
+            0xCF: '\u00CF', // Ï
+            0xD0: '\u00D0', // Ð
+            0xD1: '\u00D1', // Ñ
+            0xD2: '\u00D2', // Ò
+            0xD3: '\u00D3', // Ó
+            0xD4: '\u00D4', // Ô
+            0xD5: '\u00D5', // Õ
+            0xD6: '\u00D6', // Ö
+            0xD8: '\u00D8', // Ø
+            0xD9: '\u00D9', // Ù
+            0xDA: '\u00DA', // Ú
+            0xDB: '\u00DB', // Û
+            0xDC: '\u00DC', // Ü
+            0xDD: '\u00DD', // Ý
+            0xDE: '\u00DE', // Þ
+            
+            // Special Windows-1252 characters (0x80-0x9F)
+            0x80: '\u20AC', // €
+            0x82: '\u201A', // ‚
+            0x83: '\u0192', // ƒ
+            0x84: '\u201E', // „
+            0x85: '\u2026', // …
+            0x86: '\u2020', // †
+            0x87: '\u2021', // ‡
+            0x88: '\u02C6', // ˆ
+            0x89: '\u2030', // ‰
+            0x8A: '\u0160', // Š
+            0x8B: '\u2039', // ‹
+            0x8C: '\u0152', // Œ
+            0x8E: '\u017D', // Ž
+            0x91: '\u2018', // '
+            0x92: '\u2019', // '
+            0x93: '\u201C', // "
+            0x94: '\u201D', // "
+            0x95: '\u2022', // •
+            0x96: '\u2013', // –
+            0x97: '\u2014', // —
+            0x98: '\u02DC', // ˜
+            0x99: '\u2122', // ™
+            0x9A: '\u0161', // š
+            0x9B: '\u203A', // ›
+            0x9C: '\u0153', // œ
+            0x9E: '\u017E', // ž
+            0x9F: '\u0178'  // Ÿ
+        };
+        
+        let result = '';
+        for (let i = 0; i < bytes.length; i++) {
+            const byte = bytes[i];
+            if (windows1252Map[byte]) {
+                result += windows1252Map[byte];
+            } else if (byte >= 0x20 && byte < 0x7F) {
+                // ASCII printable characters
+                result += String.fromCharCode(byte);
+            } else if (byte === 0x0A || byte === 0x0D || byte === 0x09) {
+                // Line breaks and tabs
+                result += String.fromCharCode(byte);
+            } else if (byte < 0x20) {
+                // Control characters (preserve)
+                result += String.fromCharCode(byte);
+            } else {
+                // Unknown byte - try to preserve as-is
+                result += String.fromCharCode(byte);
+            }
+        }
+        return result;
+    };
+
+    // Helper function to convert text from various encodings to UTF-8
+    const convertToUTF8 = async (file, encodings = ['UTF-8', 'Windows-1252', 'ISO-8859-1', 'ISO-8859-15']) => {
+        // Read file as ArrayBuffer first for encoding detection
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // Try each encoding
+        for (const encoding of encodings) {
+            try {
+                let decoded;
+                
+                if (encoding === 'UTF-8') {
+                    // For UTF-8, try FileReader method first (most reliable)
+                    try {
+                        decoded = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = (e) => resolve(e.target.result);
+                            reader.onerror = reject;
+                            reader.readAsText(file, 'UTF-8');
+                        });
+                    } catch (error) {
+                        // Fallback to TextDecoder
+                        const decoder = new TextDecoder('UTF-8', { fatal: false });
+                        decoded = decoder.decode(arrayBuffer);
+                    }
+                } else if (encoding === 'Windows-1252') {
+                    // Try TextDecoder first
+                    try {
+                        const decoder = new TextDecoder('windows-1252', { fatal: false });
+                        decoded = decoder.decode(arrayBuffer);
+                    } catch (error) {
+                        // Fallback to manual conversion
+                        console.log('TextDecoder does not support Windows-1252, using manual conversion');
+                        decoded = convertWindows1252ToUTF8(uint8Array);
+                    }
+                } else {
+                    // For other encodings, use TextDecoder
+                    const decoder = new TextDecoder(encoding, { fatal: false });
+                    decoded = decoder.decode(arrayBuffer);
+                }
+                
+                // Check if decoding produced valid text
+                if (decoded && decoded.length > 0) {
+                    // Check for replacement characters (indicates decoding failure)
+                    const replacementCharCount = (decoded.match(/\uFFFD/g) || []).length;
+                    const questionMarkCount = (decoded.match(/\?/g) || []).length;
+                    const totalChars = decoded.length;
+                    
+                    // Check for special characters to verify correct decoding
+                    const hasSpecialChars = /[éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ]/.test(decoded) || /[\u0600-\u06FF]/.test(decoded);
+                    
+                    // If we find special characters and few replacement/question marks, encoding is likely correct
+                    if (hasSpecialChars && (replacementCharCount / totalChars < 0.01) && (questionMarkCount / totalChars < 0.1)) {
+                        console.log(`✓ File successfully decoded as ${encoding}`);
+                        console.log(`  Sample with special chars:`, decoded.match(/[éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ\u0600-\u06FF]{0,20}/)?.[0]);
+                        return decoded;
+                    }
+                    
+                    // If no replacement chars and no excessive question marks, might be correct
+                    if (replacementCharCount === 0 && (questionMarkCount / totalChars < 0.05) && encoding === 'UTF-8') {
+                        console.log(`✓ File read as ${encoding}`);
+                        return decoded;
+                    }
+                }
+            } catch (error) {
+                console.warn(`Failed to decode as ${encoding}:`, error);
+                continue;
+            }
+        }
+        
+        // Last resort: try manual Windows-1252 conversion
+        console.warn('Standard encoding attempts failed, trying manual Windows-1252 conversion');
+        const manualConverted = convertWindows1252ToUTF8(uint8Array);
+        if (manualConverted && manualConverted.length > 0) {
+            console.log('✓ Used manual Windows-1252 conversion');
+            return manualConverted;
+        }
+        
+        // Final fallback: UTF-8 with FileReader
+        console.warn('All encoding attempts failed, using UTF-8 fallback');
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsText(file, 'UTF-8');
+        });
+    };
+
+    // Helper function to ensure UTF-8 string preservation
+    const preserveUTF8 = (value) => {
+        if (value === null || value === undefined) return '';
+        // Ensure the value is treated as a UTF-8 string
+        if (typeof value === 'string') {
+            return value;
+        }
+        // Convert to string, preserving UTF-8 encoding
+        return String(value);
+    };
+
     // Helper function to process CSV/Excel data to GeoJSON
     const processPointData = (data, fileNameWithoutExt) => {
         const features = data
@@ -320,19 +541,26 @@ function App() {
                 // Check for X/Y columns (case insensitive)
                 const xCol = Object.keys(row).find(key => key.toUpperCase() === 'X');
                 const yCol = Object.keys(row).find(key => key.toUpperCase() === 'Y');
-                return xCol && yCol && !isNaN(row[xCol]) && !isNaN(row[yCol]);
+                return xCol && yCol && !isNaN(parseFloat(row[xCol])) && !isNaN(parseFloat(row[yCol]));
             })
-                            .map(row => {
-                                try {
+            .map(row => {
+                try {
                     const xCol = Object.keys(row).find(key => key.toUpperCase() === 'X');
                     const yCol = Object.keys(row).find(key => key.toUpperCase() === 'Y');
                     const x = parseFloat(row[xCol]);
                     const y = parseFloat(row[yCol]);
-                                    
-                                    const [lon, lat] = proj4('EPSG:22391', 'EPSG:4326', [x, y]);
                     
-                    // Include all properties from the row
-                    const properties = { ...row };
+                    const [lon, lat] = proj4('EPSG:22391', 'EPSG:4326', [x, y]);
+                    
+                    // Include all properties from the row, preserving UTF-8 characters
+                    const properties = {};
+                    // Copy all properties, ensuring strings are preserved as-is to maintain UTF-8
+                    Object.keys(row).forEach(key => {
+                        const value = row[key];
+                        // Preserve the value as-is to maintain UTF-8 encoding
+                        properties[key] = preserveUTF8(value);
+                    });
+                    
                     // Ensure name property exists
                     if (!properties.name) {
                         const nameCol = Object.keys(row).find(key => 
@@ -340,25 +568,25 @@ function App() {
                             key.toUpperCase() === 'A' || 
                             key.toUpperCase() === 'NAME'
                         );
-                        properties.name = nameCol ? row[nameCol] : 'Unnamed';
+                        properties.name = nameCol ? preserveUTF8(row[nameCol]) : 'Unnamed';
                     }
                     properties.x = x;
                     properties.y = y;
-                                    
-                                    return {
-                                        type: 'Feature',
+                    
+                    return {
+                        type: 'Feature',
                         properties: properties,
-                                        geometry: {
-                                            type: 'Point',
-                                            coordinates: [lon, lat]
-                                        }
-                                    };
-                                } catch (error) {
-                                    console.error('Error converting coordinates:', row, error);
-                                    return null;
-                                }
-                            })
-                            .filter(feature => feature !== null);
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [lon, lat]
+                        }
+                    };
+                } catch (error) {
+                    console.error('Error converting coordinates:', row, error);
+                    return null;
+                }
+            })
+            .filter(feature => feature !== null);
                         
                         const geojson = {
                             type: 'FeatureCollection',
@@ -419,31 +647,82 @@ function App() {
             const ext = fileName.split('.').pop().toLowerCase();
 
             if (ext === 'csv') {
-                Papa.parse(file, {
-                    header: true,
-                    delimiter: ';',
-                    skipEmptyLines: true,
-                    dynamicTyping: true,
-                    complete: (results) => {
-                        console.log('Parsed CSV data:', results.data);
-                        processPointData(results.data, fileNameWithoutExt);
-                    },
-                    error: (error) => {
-                        console.error('CSV parsing error:', error);
-                        alert(`Error parsing CSV file ${fileName}: ${error.message}`);
+                // Read CSV with automatic encoding detection and conversion
+                (async () => {
+                    try {
+                        // Try to detect and convert encoding
+                        let csvText = await convertToUTF8(file);
+                        
+                        // Remove BOM (Byte Order Mark) if present
+                        if (csvText.charCodeAt(0) === 0xFEFF) {
+                            csvText = csvText.slice(1);
+                            console.log('Removed BOM from CSV file');
+                        }
+                        
+                        // Log sample to verify encoding
+                        if (csvText.length > 0) {
+                            const sample = csvText.substring(0, Math.min(200, csvText.length));
+                            console.log('CSV sample (first 200 chars):', sample);
+                            // Check for French/Arabic characters
+                            if (/[éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ]/.test(sample) || /[\u0600-\u06FF]/.test(sample)) {
+                                console.log('✓ Special characters detected in CSV:', sample.match(/[éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ\u0600-\u06FF]/g));
+                            } else {
+                                console.warn('⚠ No special characters detected - file might be ASCII or encoding issue');
+                            }
+                        }
+                        
+                        Papa.parse(csvText, {
+                            header: true,
+                            delimiter: ';',
+                            skipEmptyLines: true,
+                            dynamicTyping: false, // Keep as strings to preserve special characters
+                            complete: (results) => {
+                                console.log('Parsed CSV data:', results.data);
+                                // Verify special characters in parsed data
+                                if (results.data.length > 0) {
+                                    const firstRow = results.data[0];
+                                    const sampleValue = Object.values(firstRow).find(v => typeof v === 'string' && v.length > 0);
+                                    if (sampleValue) {
+                                        console.log('Sample value from CSV:', sampleValue);
+                                        if (/[éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ]/.test(sampleValue) || /[\u0600-\u06FF]/.test(sampleValue)) {
+                                            console.log('✓ Special characters preserved in parsed data:', sampleValue);
+                                        }
+                                    }
+                                }
+                                processPointData(results.data, fileNameWithoutExt);
+                            },
+                            error: (error) => {
+                                console.error('CSV parsing error:', error);
+                                alert(`Error parsing CSV file ${fileName}: ${error.message}`);
+                            }
+                        });
+                    } catch (error) {
+                        console.error('Error reading CSV file:', error);
+                        alert(`Error reading CSV file ${fileName}: ${error.message}`);
                     }
-                });
+                })();
             } else if (ext === 'xlsx' || ext === 'xls') {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
                         const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
+                        // XLSX library handles UTF-8 encoding automatically
+                        const workbook = XLSX.read(data, { 
+                            type: 'array',
+                            cellText: false,
+                            cellDates: true,
+                            codepage: 65001 // UTF-8 code page
+                        });
                         
                         // Read the first sheet
                         const firstSheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[firstSheetName];
-                        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                        // Use raw: false to get formatted text values, preserving UTF-8
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+                            raw: false, // Get formatted strings to preserve UTF-8
+                            defval: '',
+                            blankrows: false
+                        });
                         
                         console.log('Parsed XLSX data:', jsonData);
                         processPointData(jsonData, fileNameWithoutExt);
@@ -454,22 +733,22 @@ function App() {
                 };
                 reader.readAsArrayBuffer(file);
             } else if (ext === 'geojson' || ext === 'json') {
-                const reader = new FileReader();
-                reader.onload = (e) => {
+                // Read JSON with automatic encoding detection
+                (async () => {
                     try {
-                        const geojson = JSON.parse(e.target.result);
+                        const jsonText = await convertToUTF8(file);
+                        const geojson = JSON.parse(jsonText);
                         processGeoJSON(geojson, fileNameWithoutExt, fileName);
                     } catch (error) {
                         console.error('Error parsing file:', error);
                         alert(`Error parsing GeoJSON file ${fileName}: ${error.message}`);
                     }
-                };
-                reader.readAsText(file);
+                })();
             } else if (ext === 'kml') {
-                const reader = new FileReader();
-                reader.onload = (e) => {
+                // Read KML with automatic encoding detection
+                (async () => {
                     try {
-                        let kmlText = e.target.result;
+                        let kmlText = await convertToUTF8(file);
                         
                         // Fix common KML namespace issues
                         // Add missing xsi namespace if schemaLocation is used but xsi is not defined
@@ -660,8 +939,7 @@ function App() {
                         console.error('Error parsing KML file:', error);
                         alert(`Error parsing KML file ${fileName}: ${error.message}\n\nPlease ensure the file is a valid KML format.`);
                     }
-                };
-                reader.readAsText(file);
+                })();
             }
         }
         event.target.value = '';
@@ -834,14 +1112,46 @@ function App() {
             }
             if (fileGroup.prj) {
                 console.log(`Reading .prj file: ${fileGroup.prj.name}`);
-                prjBuffer = await fileGroup.prj.text();
+                // Read PRJ file with UTF-8 encoding
+                prjBuffer = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = reject;
+                    reader.readAsText(fileGroup.prj, 'UTF-8');
+                });
                 console.log(`PRJ file read successfully, length: ${prjBuffer ? prjBuffer.length : 0}`);
             } else {
                 console.warn(`No .prj file found in fileGroup for ${baseName}. Available files:`, Object.keys(fileGroup));
             }
+            // Determine DBF encoding from CPG file
+            let dbfEncoding = 'UTF-8'; // Default encoding
             if (fileGroup.cpg) {
                 console.log(`Reading .cpg file: ${fileGroup.cpg.name}`);
-                cpgBuffer = await fileGroup.cpg.text();
+                // Read CPG file with UTF-8 encoding (CPG file contains code page name like "UTF-8" or "1252")
+                cpgBuffer = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = reject;
+                    reader.readAsText(fileGroup.cpg, 'UTF-8');
+                });
+                // Parse CPG content to determine encoding
+                const cpgContent = cpgBuffer.trim().toUpperCase();
+                if (cpgContent === '1252' || cpgContent === 'WINDOWS-1252' || cpgContent === 'CP1252') {
+                    dbfEncoding = 'Windows-1252';
+                } else if (cpgContent === 'UTF-8' || cpgContent === 'UTF8') {
+                    dbfEncoding = 'UTF-8';
+                } else if (cpgContent === 'ISO-8859-1' || cpgContent === 'LATIN1' || cpgContent === '8859-1') {
+                    dbfEncoding = 'ISO-8859-1';
+                } else if (cpgContent) {
+                    // Try to extract encoding number
+                    const encodingMatch = cpgContent.match(/(\d+)/);
+                    if (encodingMatch && encodingMatch[1] === '1252') {
+                        dbfEncoding = 'Windows-1252';
+                    }
+                }
+                console.log(`CPG file content: "${cpgBuffer}" → Detected DBF encoding: ${dbfEncoding}`);
+            } else {
+                console.log('No CPG file found, assuming UTF-8 encoding for DBF');
             }
 
             // Extract CRS from PRJ file
@@ -884,8 +1194,9 @@ function App() {
                 }
                 // Don't pass prj to shpjs if we're going to transform manually
                 // shpjs might transform, but we want consistent control
+                // Pass CPG as string to shpjs (it contains encoding name like "1252" or "UTF-8")
                 if (cpgBuffer) {
-                    shapefileObject.cpg = cpgBuffer;
+                    shapefileObject.cpg = cpgBuffer.trim();
                 }
 
                 // Use getShapefile with object format
@@ -896,7 +1207,9 @@ function App() {
                 try {
                     if (dbfBuffer) {
                         const shpFeatures = await parseShp(shpBuffer, prjBuffer);
-                        const dbfData = await parseDbf(dbfBuffer, cpgBuffer);
+                        // Pass CPG content (encoding name) to parseDbf
+                        const cpgContent = cpgBuffer ? cpgBuffer.trim() : null;
+                        const dbfData = await parseDbf(dbfBuffer, cpgContent);
                         // Combine features with attributes
                         geojson = {
                             type: 'FeatureCollection',
@@ -914,6 +1227,63 @@ function App() {
                 } catch (fallbackError) {
                     throw new Error(`Failed to parse shapefile: ${parseError.message}`);
                 }
+            }
+
+            // Post-process to ensure UTF-8 characters are preserved in properties
+            // Convert DBF attributes from detected encoding to UTF-8
+            if (geojson && geojson.features) {
+                geojson.features = geojson.features.map(feature => {
+                    if (feature.properties) {
+                        const processedProperties = {};
+                        Object.keys(feature.properties).forEach(key => {
+                            let value = feature.properties[key];
+                            
+                            // Convert string values from DBF encoding to UTF-8
+                            if (typeof value === 'string' && value.length > 0 && dbfEncoding !== 'UTF-8') {
+                                try {
+                                    if (dbfEncoding === 'Windows-1252') {
+                                        // Convert string characters back to bytes (assuming they represent Windows-1252 bytes)
+                                        // Then convert those bytes using our Windows-1252 to UTF-8 converter
+                                        const bytes = new Uint8Array(value.length);
+                                        for (let i = 0; i < value.length; i++) {
+                                            const charCode = value.charCodeAt(i);
+                                            // If character is in Latin-1 range, treat as Windows-1252 byte
+                                            if (charCode < 256) {
+                                                bytes[i] = charCode;
+                                            } else {
+                                                // Character outside Latin-1 range, might be already UTF-8
+                                                // Keep as-is or convert to '?'
+                                                bytes[i] = 0x3F; // '?'
+                                            }
+                                        }
+                                        // Convert Windows-1252 bytes to UTF-8 string
+                                        value = convertWindows1252ToUTF8(bytes);
+                                    } else if (dbfEncoding === 'ISO-8859-1') {
+                                        // ISO-8859-1 is similar to Windows-1252 for most characters
+                                        const decoder = new TextDecoder('iso-8859-1', { fatal: false });
+                                        const bytes = new Uint8Array(value.length);
+                                        for (let i = 0; i < value.length; i++) {
+                                            const charCode = value.charCodeAt(i);
+                                            bytes[i] = charCode < 256 ? charCode : 0x3F;
+                                        }
+                                        value = decoder.decode(bytes);
+                                    }
+                                } catch (error) {
+                                    console.warn(`Failed to convert encoding for property "${key}":`, error);
+                                    // Keep original value if conversion fails
+                                }
+                            }
+                            
+                            // Apply preserveUTF8 to ensure proper encoding
+                            processedProperties[key] = preserveUTF8(value);
+                        });
+                        return {
+                            ...feature,
+                            properties: processedProperties
+                        };
+                    }
+                    return feature;
+                });
             }
 
             // Ensure geojson has the correct structure
@@ -980,11 +1350,12 @@ function App() {
         }
     };
 
-    // Helper function to escape HTML to prevent XSS
+    // Helper function to escape HTML to prevent XSS (preserves UTF-8)
     const escapeHtml = (text) => {
         if (text === null || text === undefined) return 'N/A';
         const div = document.createElement('div');
-        div.textContent = text.toString();
+        // Use textContent which preserves UTF-8 encoding
+        div.textContent = preserveUTF8(text);
         return div.innerHTML;
     };
 
