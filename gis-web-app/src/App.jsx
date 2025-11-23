@@ -47,8 +47,11 @@ function App() {
     const [projection, setProjection] = useState('EPSG:22391');
 
     useEffect(() => {
-        // Define the Carthage projection (Tunisia UTM Zone 32N)
+        // Define common projections
+        // Tunisia UTM Zone 32N (Carthage)
         proj4.defs('EPSG:22391', '+proj=utm +zone=32 +north +ellps=clrk80ign +units=m +no_defs');
+        // WGS84 UTM Zone 32N
+        proj4.defs('EPSG:32632', '+proj=utm +zone=32 +datum=WGS84 +units=m +no_defs');
     }, []);
 
     // Helper function to validate and normalize GeoJSON
@@ -378,8 +381,12 @@ function App() {
             const fileName = file.name;
             const ext = fileName.split('.').pop().toLowerCase();
             
+            // Group shapefile components together
             if (['shp', 'shx', 'dbf', 'prj', 'cpg'].includes(ext)) {
+                // Remove extension to get base name (case-insensitive)
                 const baseName = fileName.replace(/\.(shp|shx|dbf|prj|cpg)$/i, '');
+                console.log(`Grouping shapefile component: ${fileName} -> baseName: "${baseName}", ext: "${ext}"`);
+                
                 if (!shapefileGroups[baseName]) {
                     shapefileGroups[baseName] = {};
                 }
@@ -389,10 +396,19 @@ function App() {
             }
         }
 
+        // Log grouped files
+        console.log('Shapefile groups:', Object.keys(shapefileGroups));
+        for (const [baseName, fileGroup] of Object.entries(shapefileGroups)) {
+            console.log(`  ${baseName}:`, Object.keys(fileGroup));
+        }
+
         // Process shapefiles
         for (const [baseName, fileGroup] of Object.entries(shapefileGroups)) {
             if (fileGroup.shp) {
+                console.log(`Processing shapefile: ${baseName} with files:`, Object.keys(fileGroup));
                 processShapefile(fileGroup.shp, fileGroup, baseName);
+            } else {
+                console.warn(`Shapefile group "${baseName}" has no .shp file, skipping. Available files:`, Object.keys(fileGroup));
             }
         }
 
@@ -651,6 +667,149 @@ function App() {
         event.target.value = '';
     };
 
+    // Helper function to extract EPSG code from PRJ file content
+    const extractEPSGFromPRJ = (prjText) => {
+        if (!prjText) {
+            console.log('extractEPSGFromPRJ: prjText is null or empty');
+            return null;
+        }
+        
+        // Normalize the text (remove extra whitespace, convert to uppercase for matching)
+        const normalizedText = prjText.trim().replace(/\s+/g, ' ');
+        console.log('PRJ normalized text (first 200 chars):', normalizedText.substring(0, 200));
+        
+        // Try to find EPSG code in PRJ text
+        // Common patterns: "EPSG:32632", "EPSG::32632", "AUTHORITY["EPSG","32632"]"
+        const epsgMatch = prjText.match(/EPSG[:\s]*(\d+)/i) || 
+                         prjText.match(/AUTHORITY\["EPSG","(\d+)"\]/i);
+        
+        if (epsgMatch) {
+            const epsgCode = `EPSG:${epsgMatch[1]}`;
+            console.log(`Found explicit EPSG code: ${epsgCode}`);
+            return epsgCode;
+        }
+        
+        // Try to detect common projections from WKT (Well-Known Text)
+        // First, check for the specific pattern we know: "WGS_1984_UTM_Zone_32N"
+        if (prjText.includes('WGS_1984_UTM_Zone_32N') || prjText.includes('WGS 1984 UTM Zone 32N')) {
+            console.log('Detected WGS_1984_UTM_Zone_32N pattern, returning EPSG:32632');
+            return 'EPSG:32632';
+        }
+        
+        // Check for UTM Zone 32 (various formats)
+        const hasUTM = prjText.includes('UTM') || prjText.includes('utm');
+        const hasZone32 = prjText.includes('Zone_32') || prjText.includes('Zone 32') || 
+                          prjText.includes('zone_32') || prjText.includes('zone 32') ||
+                          prjText.includes('ZONE_32') || prjText.includes('ZONE 32') ||
+                          prjText.match(/Zone[_\s]*32/i);
+        
+        if (hasUTM && hasZone32) {
+            console.log('Detected UTM Zone 32 in PRJ file');
+            // Check for WGS84 (various formats) - be more comprehensive
+            const hasWGS = prjText.includes('WGS_1984') || prjText.includes('WGS 1984') || 
+                          prjText.includes('WGS84') || prjText.includes('WGS 84') ||
+                          prjText.includes('GCS_WGS_1984') || prjText.includes('GCS_WGS') ||
+                          prjText.includes('GCS_WGS84') || prjText.includes('GCS WGS') ||
+                          prjText.includes('D_WGS_1984') || prjText.includes('Datum_WGS_1984') ||
+                          prjText.includes('DATUM["D_WGS_1984"') || prjText.includes('DATUM["WGS_1984"') ||
+                          prjText.includes('PROJCS["WGS') || prjText.match(/WGS/i);
+            
+            if (hasWGS) {
+                console.log('Detected WGS84 in PRJ file, returning EPSG:32632');
+                return 'EPSG:32632'; // WGS84 UTM Zone 32N
+            }
+            
+            // Check for Tunisia/Carthage
+            const hasCarthage = prjText.includes('Carthage') || prjText.includes('CARTHAGE') ||
+                               prjText.includes('clrk80') || prjText.includes('CLRK80') ||
+                               prjText.includes('Clarke_1880') || prjText.includes('Clarke 1880') ||
+                               prjText.includes('CLARKE_1880');
+            
+            if (hasCarthage) {
+                console.log('Detected Carthage/Tunisia projection in PRJ file, returning EPSG:22391');
+                return 'EPSG:22391'; // Tunisia UTM Zone 32N
+            }
+        }
+        
+        // Try to detect other UTM zones with WGS84 (more flexible pattern)
+        const utmZoneMatch = prjText.match(/UTM[_\s]*Zone[_\s]*(\d+)/i) || 
+                            prjText.match(/zone[_\s]*(\d+)/i);
+        if (utmZoneMatch && (prjText.includes('WGS') || prjText.includes('GCS_WGS'))) {
+            const zone = parseInt(utmZoneMatch[1]);
+            // Determine if Northern or Southern hemisphere
+            const isNorth = !prjText.includes('South') && !prjText.includes('S') && 
+                           !prjText.includes('south') && !prjText.includes('s');
+            const epsgCode = isNorth ? 32600 + zone : 32700 + zone;
+            console.log(`Detected UTM Zone ${zone}${isNorth ? 'N' : 'S'}, using EPSG:${epsgCode}`);
+            return `EPSG:${epsgCode}`;
+        }
+        
+        console.log('Could not extract EPSG code from PRJ file');
+        return null;
+    };
+
+    // Helper function to transform coordinates in GeoJSON
+    const transformGeoJSONCoordinates = (geojson, sourceCRS) => {
+        if (!sourceCRS || sourceCRS === 'EPSG:4326') {
+            return geojson; // Already in WGS84
+        }
+
+        // Define the source projection if not already defined
+        if (!proj4.defs(sourceCRS)) {
+            if (sourceCRS === 'EPSG:32632') {
+                proj4.defs('EPSG:32632', '+proj=utm +zone=32 +datum=WGS84 +units=m +no_defs');
+            } else if (sourceCRS === 'EPSG:22391') {
+                proj4.defs('EPSG:22391', '+proj=utm +zone=32 +north +ellps=clrk80ign +units=m +no_defs');
+            } else {
+                console.warn(`Unknown CRS ${sourceCRS}. Attempting transformation anyway.`);
+            }
+        }
+
+        // Transform coordinates recursively
+        const transformCoordinates = (coords) => {
+            if (Array.isArray(coords[0])) {
+                // Nested array (LineString, Polygon, etc.)
+                return coords.map(transformCoordinates);
+            } else if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                // Single coordinate pair [x, y] or [lon, lat]
+                try {
+                    const [x, y, ...rest] = coords;
+                    const [lon, lat] = proj4(sourceCRS, 'EPSG:4326', [x, y]);
+                    return [lon, lat, ...rest];
+                } catch (error) {
+                    console.error('Coordinate transformation error:', error, coords);
+                    return coords; // Return original if transformation fails
+                }
+            }
+            return coords;
+        };
+
+        // Transform all features
+        const transformedGeoJSON = {
+            ...geojson,
+            features: geojson.features.map(feature => {
+                if (!feature.geometry || !feature.geometry.coordinates) {
+                    return feature;
+                }
+                
+                try {
+                    return {
+                        ...feature,
+                        geometry: {
+                            ...feature.geometry,
+                            coordinates: transformCoordinates(feature.geometry.coordinates)
+                        }
+                    };
+                } catch (error) {
+                    console.error('Error transforming feature:', error);
+                    return feature;
+                }
+            })
+        };
+
+        return transformedGeoJSON;
+    };
+
     const processShapefile = async (shpFile, fileGroup, baseName) => {
         try {
             // Read the .shp file as ArrayBuffer
@@ -661,30 +820,70 @@ function App() {
             let prjBuffer = null;
             let cpgBuffer = null;
             
+            console.log(`Reading shapefile components for ${baseName}:`, {
+                hasShp: !!fileGroup.shp,
+                hasShx: !!fileGroup.shx,
+                hasDbf: !!fileGroup.dbf,
+                hasPrj: !!fileGroup.prj,
+                hasCpg: !!fileGroup.cpg
+            });
+            
             if (fileGroup.dbf) {
+                console.log(`Reading .dbf file: ${fileGroup.dbf.name}`);
                 dbfBuffer = await fileGroup.dbf.arrayBuffer();
             }
             if (fileGroup.prj) {
+                console.log(`Reading .prj file: ${fileGroup.prj.name}`);
                 prjBuffer = await fileGroup.prj.text();
+                console.log(`PRJ file read successfully, length: ${prjBuffer ? prjBuffer.length : 0}`);
+            } else {
+                console.warn(`No .prj file found in fileGroup for ${baseName}. Available files:`, Object.keys(fileGroup));
             }
             if (fileGroup.cpg) {
+                console.log(`Reading .cpg file: ${fileGroup.cpg.name}`);
                 cpgBuffer = await fileGroup.cpg.text();
             }
 
+            // Extract CRS from PRJ file
+            let sourceCRS = null;
+            if (prjBuffer) {
+                console.log('Shapefile projection (PRJ file content):', prjBuffer);
+                console.log('PRJ file length:', prjBuffer.length);
+                sourceCRS = extractEPSGFromPRJ(prjBuffer);
+                if (sourceCRS) {
+                    console.log(`✓ Detected CRS from PRJ: ${sourceCRS}`);
+                } else {
+                    console.warn('⚠ Could not extract EPSG code from PRJ file. PRJ content:', prjBuffer.substring(0, 200));
+                    console.warn('Attempting to detect from coordinates...');
+                }
+            } else {
+                console.warn('⚠ No PRJ file found. Attempting to detect CRS from coordinates...');
+            }
+
+            // Read .shx file if available (required for shapefile parsing)
+            let shxBuffer = null;
+            if (fileGroup.shx) {
+                shxBuffer = await fileGroup.shx.arrayBuffer();
+            }
+
             // Use shpjs to parse the shapefile
-            // shpjs getShapefile can work with an object containing .shp, .dbf, .prj, .cpg
+            // Note: shpjs may not transform coordinates automatically, so we'll do it manually
             let geojson;
             try {
                 const shapefileObject = {
                     shp: shpBuffer
                 };
                 
+                // Include .shx if available (shpjs uses it for indexing)
+                if (shxBuffer) {
+                    shapefileObject.shx = shxBuffer;
+                }
+                
                 if (dbfBuffer) {
                     shapefileObject.dbf = dbfBuffer;
                 }
-                if (prjBuffer) {
-                    shapefileObject.prj = prjBuffer;
-                }
+                // Don't pass prj to shpjs if we're going to transform manually
+                // shpjs might transform, but we want consistent control
                 if (cpgBuffer) {
                     shapefileObject.cpg = cpgBuffer;
                 }
@@ -733,13 +932,47 @@ function App() {
                 }
             }
 
-            // If we have a projection file, log it for reference
-            if (prjBuffer) {
-                console.log('Shapefile projection:', prjBuffer);
-                // Note: Coordinate transformation is handled by shpjs if proj4 projection is provided
+            // Detect CRS from coordinates if not found in PRJ
+            if (!sourceCRS && geojson.features && geojson.features.length > 0) {
+                const firstFeature = geojson.features[0];
+                if (firstFeature.geometry && firstFeature.geometry.coordinates) {
+                    const coords = firstFeature.geometry.coordinates;
+                    // Check if coordinates look like UTM (large numbers, typically > 100000)
+                    const firstCoord = Array.isArray(coords[0]) ? coords[0][0] : coords[0];
+                    if (typeof firstCoord === 'number' && Math.abs(firstCoord) > 100000) {
+                        // Likely UTM coordinates
+                        // Check Y coordinate to determine hemisphere
+                        const secondCoord = Array.isArray(coords[0]) ? coords[0][1] : coords[1];
+                        if (typeof secondCoord === 'number' && secondCoord > 0 && secondCoord < 10000000) {
+                            // Northern hemisphere UTM
+                            // Try to detect zone from X coordinate (UTM zones are 6 degrees wide)
+                            // Zone 32 covers 6°E to 12°E, which corresponds to roughly 500000-900000m easting
+                            const xCoord = Math.abs(firstCoord);
+                            if (xCoord >= 300000 && xCoord <= 900000) {
+                                // Likely Zone 32 - default to WGS84 (EPSG:32632) as it's more common
+                                console.warn('Detected UTM Zone 32N coordinates but no PRJ file. Assuming EPSG:32632 (WGS84 UTM Zone 32N).');
+                                sourceCRS = 'EPSG:32632';
+                            } else {
+                                // Default to Tunisia projection for other zones
+                                console.warn('Detected UTM coordinates but no PRJ file. Assuming EPSG:22391 (Tunisia UTM Zone 32N).');
+                                sourceCRS = 'EPSG:22391';
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Transform coordinates if needed
+            if (sourceCRS && sourceCRS !== 'EPSG:4326') {
+                console.log(`Transforming shapefile coordinates from ${sourceCRS} to EPSG:4326`);
+                geojson = transformGeoJSONCoordinates(geojson, sourceCRS);
+                console.log('Coordinate transformation completed');
+            } else if (!sourceCRS) {
+                console.log('No CRS detected. Assuming coordinates are already in WGS84 (EPSG:4326).');
             }
 
             console.log('Parsed Shapefile:', geojson);
+            // Add layer directly (coordinates are already transformed)
             addLayer(baseName, 'geojson', geojson, baseName);
         } catch (error) {
             console.error('Error parsing shapefile:', error);
