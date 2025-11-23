@@ -1,7 +1,7 @@
 import React from 'react';
 import LayersList from './LayersList';
 
-const LeftSidebar = ({ layers, categories, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory, setColorByAttribute, getLayerAttributes }) => {
+const LeftSidebar = ({ layers, categories, toggleCategory, toggleLayerVisibility, deleteLayer, selectLayer, selectedLayer, moveCategory, setColorByAttribute, getLayerAttributes, getAttributeValues, generateAttributeColorMap, updateAttributeValueColor }) => {
     const handleUploadClick = () => {
         document.getElementById('fileInput').click();
     };
@@ -32,6 +32,9 @@ const LeftSidebar = ({ layers, categories, toggleCategory, toggleLayerVisibility
                 moveCategory={moveCategory}
                 setColorByAttribute={setColorByAttribute}
                 getLayerAttributes={getLayerAttributes}
+                getAttributeValues={getAttributeValues}
+                generateAttributeColorMap={generateAttributeColorMap}
+                updateAttributeValueColor={updateAttributeValueColor}
             />
         </div>
     );

@@ -1137,7 +1137,8 @@ function App() {
             visible: true,
             color: layerColor,
             category,
-            colorByAttribute: null // Attribute name to color by, or null for single color
+            colorByAttribute: null, // Attribute name to color by, or null for single color
+            customColorMap: {} // Custom colors for attribute values: { normalizedValue: color }
         };
         
         // Update selected color to match the new layer's color
@@ -1575,25 +1576,39 @@ function App() {
         });
     };
 
+    // Get unique attribute values with their original and normalized forms
+    const getAttributeValues = (layer, attributeName) => {
+        if (!layer || !layer.data || !layer.data.features || !attributeName) {
+            return [];
+        }
+        
+        const valueMap = {}; // normalized -> { original, normalized }
+        layer.data.features.forEach(feature => {
+            if (feature.properties && feature.properties[attributeName] !== undefined) {
+                const originalValue = feature.properties[attributeName];
+                const normalized = originalValue !== null && originalValue !== undefined 
+                    ? originalValue.toString().trim().toLowerCase() 
+                    : 'Unknown';
+                
+                if (!valueMap[normalized]) {
+                    valueMap[normalized] = {
+                        original: originalValue !== null && originalValue !== undefined ? originalValue.toString() : 'Unknown',
+                        normalized: normalized
+                    };
+                }
+            }
+        });
+        
+        return Object.values(valueMap).sort((a, b) => a.original.localeCompare(b.original));
+    };
+
     // Generate color mapping for attribute values
     const generateAttributeColorMap = (layer, attributeName) => {
         if (!layer || !layer.data || !layer.data.features || !attributeName) {
             return {};
         }
         
-        const uniqueValues = new Set();
-        layer.data.features.forEach(feature => {
-            if (feature.properties && feature.properties[attributeName] !== undefined) {
-                const value = feature.properties[attributeName];
-                // Normalize value (trim and lowercase for consistent grouping)
-                const normalized = value !== null && value !== undefined 
-                    ? value.toString().trim().toLowerCase() 
-                    : 'Unknown';
-                uniqueValues.add(normalized);
-            }
-        });
-        
-        const values = Array.from(uniqueValues).sort();
+        const values = getAttributeValues(layer, attributeName);
         const colorMap = {};
         const predefinedColors = [
             '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
@@ -1603,8 +1618,12 @@ function App() {
             '#0ea5e9', '#a3e635', '#fb923c', '#c084fc', '#60a5fa'
         ];
         
-        values.forEach((value, index) => {
-            colorMap[value] = predefinedColors[index % predefinedColors.length];
+        values.forEach((valueObj, index) => {
+            // Use custom color if available, otherwise use predefined
+            const normalized = valueObj.normalized;
+            colorMap[normalized] = layer.customColorMap && layer.customColorMap[normalized]
+                ? layer.customColorMap[normalized]
+                : predefinedColors[index % predefinedColors.length];
         });
         
         return colorMap;
@@ -1615,7 +1634,39 @@ function App() {
         setLayers(prevLayers => {
             const updatedLayers = prevLayers.map(layer => {
                 if (layer.id === layerId) {
-                    const updatedLayer = { ...layer, colorByAttribute: attributeName || null };
+                    const updatedLayer = { 
+                        ...layer, 
+                        colorByAttribute: attributeName || null,
+                        // Reset custom color map when changing attribute
+                        customColorMap: attributeName ? (layer.customColorMap || {}) : {}
+                    };
+                    
+                    // Update layer styles
+                    setTimeout(() => {
+                        updateLayerStyles(updatedLayer);
+                    }, 50);
+                    
+                    return updatedLayer;
+                }
+                return layer;
+            });
+            
+            return updatedLayers;
+        });
+    };
+
+    // Update color for a specific attribute value
+    const updateAttributeValueColor = (layerId, normalizedValue, newColor) => {
+        setLayers(prevLayers => {
+            const updatedLayers = prevLayers.map(layer => {
+                if (layer.id === layerId) {
+                    const updatedLayer = {
+                        ...layer,
+                        customColorMap: {
+                            ...(layer.customColorMap || {}),
+                            [normalizedValue]: newColor
+                        }
+                    };
                     
                     // Update layer styles
                     setTimeout(() => {
@@ -1768,6 +1819,9 @@ function App() {
                 moveCategory={moveCategory}
                 setColorByAttribute={setColorByAttribute}
                 getLayerAttributes={getLayerAttributes}
+                getAttributeValues={getAttributeValues}
+                generateAttributeColorMap={generateAttributeColorMap}
+                updateAttributeValueColor={updateAttributeValueColor}
             />
                 <div 
                     className="resize-handle resize-handle-right"
